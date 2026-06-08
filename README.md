@@ -59,3 +59,7 @@ pip-remote pour les détails).
   bénéficie de ses propres mises à jour).
 - Pour ajouter un site au tri/scroll X : éditer `host_permissions` et les
   `matches` dans `background.js`.
+
+## Licence
+
+[MIT](LICENSE) © 2026 TRINITX
