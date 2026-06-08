@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>TRINITX Extensions perso</title>
+  </head>
+  <body>
+    <header class="app-header">
+      <span class="app-logo">⚙</span>
+      <div class="app-titles">
+        <h1>TRINITX</h1>
+        <p>Extensions perso</p>
+      </div>
+    </header>
+
+    <main id="modules">
+      <!-- PiP -->
+      <section class="module" data-module="pip">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>PiP hotkey + mute</h2>
+            <p>
+              Picture-in-Picture YouTube / Twitch au clavier, même en
+              arrière-plan.
+            </p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="pip" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="module-extra">
+          <span class="kbd">Ctrl+Shift+1</span>
+          <span class="kbd">Ctrl+Shift+2</span>
+          <a href="#" class="action" data-action="shortcuts"
+            >Configurer les raccourcis →</a
+          >
+        </div>
+      </section>
+
+      <!-- X Auto Sort -->
+      <section class="module" data-module="xAutoSort">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>X — Tri par likes</h2>
+            <p>Trie automatiquement les réponses X.com par nombre de likes.</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="xAutoSort" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- X Auto-Scroll -->
+      <section class="module" data-module="xAutoScroll">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>X — Auto-scroll</h2>
+            <p>Reprend ta position de lecture sur le fil X.com.</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="xAutoScroll" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="module-extra">
+          <a href="#" class="action" data-action="clear-scroll"
+            >Effacer la position sauvegardée →</a
+          >
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span id="status"></span>
+      <span class="version">v1.0.0</span>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

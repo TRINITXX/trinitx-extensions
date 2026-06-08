@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "TRINITX Extensions perso",
+  "version": "1.0.0",
+  "description": "Suite perso : PiP hotkey + mute (YouTube/Twitch), tri X par likes, auto-scroll X. Active/desactive chaque module depuis le popup.",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["scripting", "tabs", "storage", "debugger"],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.twitch.tv/*",
+    "*://x.com/*",
+    "*://twitter.com/*"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TRINITX Extensions perso",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "commands": {
+    "toggle-pip": {
+      "suggested_key": { "default": "Ctrl+Shift+1" },
+      "description": "Ouvrir / fermer le PiP (dernier onglet PiP)",
+      "global": true
+    },
+    "toggle-mute": {
+      "suggested_key": { "default": "Ctrl+Shift+2" },
+      "description": "Mute / unmute le dernier onglet PiP",
+      "global": true
+    }
+  }
+}
