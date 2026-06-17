@@ -1,24 +1,36 @@
 (() => {
+  // Guard: avoid running twice if the module gets re-injected (toggle / reload)
+  // while an x.com tab is already open.
+  if (window.__xAutoScrollLoaded) return;
+  window.__xAutoScrollLoaded = true;
+
   const TWEET_SELECTOR = 'article[data-testid="tweet"]';
   const BUTTON_TEXT_REGEX = /voir \d+ nouveau/i;
   const DEBOUNCE_MS = 400;
   const SCROLL_OFFSET = 60;
   const LOG_PREFIX = "[X-AutoScroll]";
   const STORAGE_KEY = "lastSeenTweetHref";
-  const SCROLL_STEP = 1000;
-  const SCROLL_DELAY = 300;
-  const MAX_SCROLL_ATTEMPTS = 200;
-  const MIN_TIME_BEFORE_SAVE_MS = 180000; // 3 minutes
-  const FIRST_SAVE_DELAY_MS = 300000; // 5 minutes
-  const SAVE_INTERVAL_MS = 5000;
+
+  // --- Save tuning ---
+  const SAVE_DEBOUNCE_MS = 1500; // persist 1.5s after the user stops scrolling
+  const MIN_ENGAGE_SCROLL = 400; // px scrolled before we start saving (anti-clobber)
+
+  // --- Scroll-to-last-seen tuning ---
+  const AUTOSCROLL_MAX_MS = 30000; // hard wall-clock cap (~30s)
+  const AUTOSCROLL_STEP_FRACTION = 0.7; // scroll < 1 viewport per step (no skip)
+  const RENDER_SETTLE_MS = 80; // short pause for X to render after a step
+  const AUTOSCROLL_STEP_WAIT_MS = 1200; // max wait for lazy-load when stuck
+  const AUTOSCROLL_POLL_MS = 100; // lazy-load poll interval
+  const STUCK_LIMIT = 3; // consecutive "bottom & no growth" before giving up
+  const RESUME_TRACKING_DELAY_MS = 2500; // resume tracking after a jump
+  const REPOSITION_MAX_MS = 8000; // Feature 1: cap for scrolling back to reading pos
 
   let lastSeenHref = null;
   let isAutoScrolling = false;
   let trackingPaused = false;
+  let hasScrolledSinceLoad = false;
   let scrollButton = null;
-  let tweetObserver = null;
-  let saveTimer = null;
-  const pageLoadTime = Date.now();
+  let saveDebounceTimer = null;
 
   function log(...args) {
     console.log(LOG_PREFIX, ...args);
@@ -94,6 +106,20 @@
     return null;
   }
 
+  // Topmost tweet currently sitting at the reading line (deterministic
+  // "where am I"). Returns its status href, or null.
+  function getCurrentTopTweetHref() {
+    const tweets = document.querySelectorAll(TWEET_SELECTOR);
+    for (const tweet of tweets) {
+      const rect = tweet.getBoundingClientRect();
+      // first tweet still below the header line and not fully scrolled past
+      if (rect.bottom > SCROLL_OFFSET + 8 && rect.top < window.innerHeight) {
+        return getTweetHref(tweet);
+      }
+    }
+    return null;
+  }
+
   // --- DOM stability ---
 
   function waitForDomStable(callback) {
@@ -118,42 +144,83 @@
     const safetyTimer = setTimeout(done, 2000);
   }
 
-  // --- Feature 1: Auto-scroll on "voir X nouveaux" click ---
+  // --- Feature 1: Keep reading position when loading "voir X nouveaux" ---
 
-  function scrollSearchTweet(href, attempt) {
-    const maxAttempts = 15;
-    if (attempt >= maxAttempts) {
-      log("gave up finding tweet after", maxAttempts, "attempts");
-      return;
-    }
+  // After X prepends the new posts (and scrolls to top, virtualizing the tweet
+  // we were on), gently scroll back down to that tweet and settle it at its
+  // original viewport offset. Uses the same small-step search as the
+  // scroll-to-last-seen button (which doesn't disturb X) instead of the old
+  // crude 500px probing loop that made X reinsert already-seen posts on top.
+  function repositionToReadingTweet(href, beforeTop) {
+    const docEl = document.documentElement;
+    const startTime = Date.now();
+    let stuck = 0;
 
-    const tweet = findTweetByHref(href);
-    if (tweet) {
+    function settleOn(tweet) {
       const targetY =
-        tweet.getBoundingClientRect().top +
-        document.documentElement.scrollTop -
-        SCROLL_OFFSET;
-      log(
-        "found tweet at attempt",
-        attempt,
-        "scrolling to",
-        Math.round(targetY),
-      );
+        docEl.scrollTop + tweet.getBoundingClientRect().top - beforeTop;
       smoothScrollTo(targetY);
-      return;
+      log("reading position restored");
     }
 
-    document.documentElement.scrollTop += 500;
-    log(
-      "tweet not in DOM, scrolling down to load more (attempt",
-      attempt + ")",
-    );
+    function tick() {
+      const found = findTweetByHref(href);
+      if (found) {
+        settleOn(found);
+        return;
+      }
+      if (Date.now() - startTime >= REPOSITION_MAX_MS) {
+        log("reposition gave up (timeout)");
+        return;
+      }
+      const beforeScroll = docEl.scrollTop;
+      const beforeHeight = docEl.scrollHeight;
+      docEl.scrollTop =
+        beforeScroll + window.innerHeight * AUTOSCROLL_STEP_FRACTION;
 
-    setTimeout(() => scrollSearchTweet(href, attempt + 1), 200);
+      setTimeout(() => {
+        const t1 = findTweetByHref(href);
+        if (t1) {
+          settleOn(t1);
+          return;
+        }
+        if (docEl.scrollTop > beforeScroll + 4) {
+          stuck = 0;
+          tick(); // content already loaded -> keep moving
+          return;
+        }
+        // Bottom of loaded content: wait for X to lazy-load more.
+        const t0 = Date.now();
+        (function waitGrow() {
+          const t2 = findTweetByHref(href);
+          if (t2) {
+            settleOn(t2);
+            return;
+          }
+          if (docEl.scrollHeight > beforeHeight + 4) {
+            stuck = 0;
+            tick();
+            return;
+          }
+          if (Date.now() - t0 >= AUTOSCROLL_STEP_WAIT_MS) {
+            stuck++;
+            if (stuck >= STUCK_LIMIT) {
+              log("reposition gave up (bottom)");
+              return;
+            }
+            tick();
+            return;
+          }
+          setTimeout(waitGrow, AUTOSCROLL_POLL_MS);
+        })();
+      }, RENDER_SETTLE_MS);
+    }
+
+    tick();
   }
 
   function handleClick(e) {
-    if (!isOnHomePage() || isOnForYouTab()) {
+    if (!isOnHomePage() || isOnForYouTab() || isAutoScrolling) {
       return;
     }
 
@@ -184,22 +251,11 @@
       return;
     }
 
-    const tweetAbsoluteY =
-      targetTweet.getBoundingClientRect().top +
-      document.documentElement.scrollTop;
-    const oldScrollHeight = document.documentElement.scrollHeight;
+    // Remember exactly where the tweet we're reading sits in the viewport,
+    // then let X prepend the new posts natively before we scroll back to it.
+    const beforeTop = targetTweet.getBoundingClientRect().top;
 
-    log("target tweet href:", href, "absoluteY:", Math.round(tweetAbsoluteY));
-
-    waitForDomStable(() => {
-      const heightAdded =
-        document.documentElement.scrollHeight - oldScrollHeight;
-      const estimatedY = tweetAbsoluteY + heightAdded;
-      document.documentElement.scrollTop = estimatedY - SCROLL_OFFSET;
-      log("phase 1: jumped to estimated position", Math.round(estimatedY));
-
-      setTimeout(() => scrollSearchTweet(href, 0), 300);
-    });
+    waitForDomStable(() => repositionToReadingTweet(href, beforeTop));
   }
 
   // --- Feature 2: Last seen tweet tracking & scroll-to button ---
@@ -216,67 +272,51 @@
     if (!lastSeenHref || !isContextValid()) return;
     chrome.storage.local.set({ [STORAGE_KEY]: lastSeenHref }, () => {
       log("saved last seen tweet:", lastSeenHref);
-      updateButtonVisibility();
+      // Only refresh visibility when the button isn't already shown — avoids
+      // touching the DOM on every save while the user is scrolling.
+      if (scrollButton && scrollButton.style.display === "none") {
+        updateButtonVisibility();
+      }
     });
   }
 
   function loadLastSeenTweet(callback) {
-    if (!isContextValid()) {
-      log("loadLastSeenTweet: context invalid, skipping");
-      return;
-    }
+    if (!isContextValid()) return;
     chrome.storage.local.get(STORAGE_KEY, (result) => {
-      const href = result[STORAGE_KEY] || null;
-      log("loadLastSeenTweet:", href ? "found" : "empty");
-      callback(href);
+      callback(result[STORAGE_KEY] || null);
     });
   }
 
-  function startLastSeenTracking() {
-    if (tweetObserver) {
-      tweetObserver.disconnect();
-    }
-
-    tweetObserver = new IntersectionObserver(
-      (entries) => {
-        if (
-          !isOnHomePage() ||
-          isOnForYouTab() ||
-          isAutoScrolling ||
-          trackingPaused
-        )
-          return;
-
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const href = getTweetHref(entry.target);
-            if (href) {
-              lastSeenHref = href;
-            }
-          }
-        }
-      },
-      { threshold: 0.5 },
+  function canSaveNow() {
+    return (
+      isOnHomePage() &&
+      !isOnForYouTab() &&
+      hasScrolledSinceLoad &&
+      !trackingPaused &&
+      !isAutoScrolling
     );
-
-    observeExistingTweets();
-
-    // Also observe new tweets as they appear
-    const domObserver = new MutationObserver(() => {
-      observeExistingTweets();
-    });
-    domObserver.observe(document.body, { childList: true, subtree: true });
   }
 
-  function observeExistingTweets() {
-    if (!tweetObserver) return;
-    const tweets = document.querySelectorAll(TWEET_SELECTOR);
-    tweets.forEach((tweet) => {
-      if (!tweet.dataset.xAutoScrollObserved) {
-        tweet.dataset.xAutoScrollObserved = "1";
-        tweetObserver.observe(tweet);
-      }
-    });
+  // Update lastSeenHref from the current viewport and persist it.
+  function captureAndSave() {
+    if (!canSaveNow()) return;
+    const href = getCurrentTopTweetHref();
+    if (!href) return;
+    lastSeenHref = href;
+    saveLastSeenTweet();
+  }
+
+  function onUserScroll() {
+    if (isAutoScrolling) return; // ignore programmatic scrolling
+    if (
+      !hasScrolledSinceLoad &&
+      document.documentElement.scrollTop > MIN_ENGAGE_SCROLL
+    ) {
+      hasScrolledSinceLoad = true;
+    }
+    if (!hasScrolledSinceLoad) return;
+    clearTimeout(saveDebounceTimer);
+    saveDebounceTimer = setTimeout(captureAndSave, SAVE_DEBOUNCE_MS);
   }
 
   // --- Scroll button UI ---
@@ -313,7 +353,6 @@
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        backdrop-filter: blur(4px);
         transition: background 0.2s, color 0.2s, transform 0.2s;
         user-select: none;
       }
@@ -390,6 +429,9 @@
     }
     if (!scrollButton) return;
 
+    // Never hide while actively scrolling to a position
+    if (isAutoScrolling) return;
+
     // Hide if not on home page, on "Pour vous" tab, or if tabs aren't loaded yet
     const tablist = document.querySelector('[role="tablist"]');
     if (!isOnHomePage() || !tablist || isOnForYouTab()) {
@@ -398,6 +440,7 @@
     }
 
     loadLastSeenTweet((href) => {
+      if (isAutoScrolling) return;
       scrollButton.style.display = href ? "flex" : "none";
     });
   }
@@ -426,68 +469,135 @@
     scrollButton.classList.add("scrolling");
     showToast("Scrolling to last position...");
 
-    let attempt = 0;
+    const startTime = Date.now();
+    let stuckCount = 0;
+    let rafId = null;
+    let stepTimer = null;
 
-    function scrollStep() {
-      if (!isAutoScrolling) return;
-
-      // Check if tweet is now in DOM
-      const tweet = findTweetByHref(targetHref);
-      if (tweet) {
-        isAutoScrolling = false;
-        trackingPaused = true;
-        scrollButton.classList.remove("scrolling");
-        scrollButton.style.display = "none";
-        chrome.storage.local.remove(STORAGE_KEY);
-
-        // Resume tracking after 60s so new positions can be saved
-        setTimeout(() => {
-          trackingPaused = false;
-          log("tracking resumed after scroll-to-last-seen");
-        }, 60000);
-
-        const targetY =
-          tweet.getBoundingClientRect().top +
-          document.documentElement.scrollTop -
-          SCROLL_OFFSET;
-        smoothScrollTo(targetY);
-
-        // Highlight the found tweet briefly
-        tweet.style.outline = "2px solid #1d9bf0";
-        tweet.style.outlineOffset = "-2px";
-        tweet.style.borderRadius = "12px";
-        setTimeout(() => {
-          tweet.style.outline = "";
-          tweet.style.outlineOffset = "";
-          tweet.style.borderRadius = "";
-        }, 4000);
-
-        log("found last seen tweet at attempt", attempt);
-        showToast("Position found!");
-        return;
-      }
-
-      if (attempt >= MAX_SCROLL_ATTEMPTS) {
-        isAutoScrolling = false;
-        scrollButton.classList.remove("scrolling");
-        scrollButton.classList.add("not-found");
-        setTimeout(() => scrollButton.classList.remove("not-found"), 3000);
-        log("gave up after", MAX_SCROLL_ATTEMPTS, "attempts");
-        showToast("Tweet not found - it may have been removed");
-        return;
-      }
-
-      document.documentElement.scrollTop += SCROLL_STEP;
-      attempt++;
-
-      if (attempt % 10 === 0) {
-        log("auto-scroll attempt", attempt, "of", MAX_SCROLL_ATTEMPTS);
-      }
-
-      setTimeout(scrollStep, SCROLL_DELAY);
+    function stop() {
+      isAutoScrolling = false;
+      scrollButton.classList.remove("scrolling");
+      if (rafId) cancelAnimationFrame(rafId);
+      if (stepTimer) clearTimeout(stepTimer);
     }
 
-    scrollStep();
+    function onFound(tweet) {
+      stop();
+      trackingPaused = true; // don't re-save while we settle on the target
+
+      const targetY =
+        tweet.getBoundingClientRect().top +
+        document.documentElement.scrollTop -
+        SCROLL_OFFSET;
+      smoothScrollTo(targetY);
+
+      // Highlight the found tweet briefly
+      tweet.style.outline = "2px solid #1d9bf0";
+      tweet.style.outlineOffset = "-2px";
+      tweet.style.borderRadius = "12px";
+      setTimeout(() => {
+        tweet.style.outline = "";
+        tweet.style.outlineOffset = "";
+        tweet.style.borderRadius = "";
+      }, 4000);
+
+      log("found last seen tweet");
+      showToast("Position found!");
+
+      // Keep the saved key; resume tracking shortly so new positions save.
+      setTimeout(() => {
+        trackingPaused = false;
+        log("tracking resumed after scroll-to-last-seen");
+      }, RESUME_TRACKING_DELAY_MS);
+    }
+
+    function giveUp(reason) {
+      stop();
+      scrollButton.classList.add("not-found");
+      setTimeout(() => scrollButton.classList.remove("not-found"), 3000);
+      showToast(
+        reason === "bottom"
+          ? "Bas de la timeline atteint — tweet introuvable"
+          : "Position non trouvée (trop ancienne)",
+      );
+      log("auto-scroll gave up:", reason);
+      updateButtonVisibility(); // keep the key & button for a retry
+    }
+
+    // Continuous detection: catch the target even if it is rendered only
+    // briefly between virtualization passes (fixes the ~1/4 intermittent miss).
+    function detectLoop() {
+      if (!isAutoScrolling) return;
+      const tweet = findTweetByHref(targetHref);
+      if (tweet) {
+        onFound(tweet);
+        return;
+      }
+      rafId = requestAnimationFrame(detectLoop);
+    }
+
+    // Bottom of *loaded* content: poll until X lazy-loads more (scrollHeight
+    // grows) or we time out. Only used when a step couldn't advance.
+    function waitForGrowth(prevHeight, done) {
+      const t0 = Date.now();
+      function check() {
+        if (!isAutoScrolling) return;
+        const grew = document.documentElement.scrollHeight > prevHeight + 4;
+        if (grew || Date.now() - t0 >= AUTOSCROLL_STEP_WAIT_MS) {
+          done(grew);
+          return;
+        }
+        stepTimer = setTimeout(check, AUTOSCROLL_POLL_MS);
+      }
+      stepTimer = setTimeout(check, AUTOSCROLL_POLL_MS);
+    }
+
+    function step() {
+      if (!isAutoScrolling) return;
+
+      if (Date.now() - startTime >= AUTOSCROLL_MAX_MS) {
+        giveUp("timeout");
+        return;
+      }
+
+      const docEl = document.documentElement;
+      const beforeTop = docEl.scrollTop;
+      const beforeHeight = docEl.scrollHeight;
+
+      // Step less than one viewport so no tweet is skipped between positions.
+      docEl.scrollTop =
+        beforeTop + window.innerHeight * AUTOSCROLL_STEP_FRACTION;
+
+      // Short settle for render; detectLoop() (rAF) catches the target in the
+      // meantime. Only wait long for lazy-load when the step couldn't advance.
+      stepTimer = setTimeout(() => {
+        if (!isAutoScrolling) return;
+        const moved = document.documentElement.scrollTop > beforeTop + 4;
+        if (moved) {
+          stuckCount = 0;
+          step(); // content already loaded -> keep moving fast
+          return;
+        }
+        // Couldn't advance: at the bottom of loaded content -> wait for more.
+        waitForGrowth(beforeHeight, (grew) => {
+          if (!isAutoScrolling) return;
+          if (grew) {
+            stuckCount = 0;
+            step();
+            return;
+          }
+          stuckCount++;
+          if (stuckCount >= STUCK_LIMIT) {
+            giveUp("bottom");
+            return;
+          }
+          step();
+        });
+      }, RENDER_SETTLE_MS);
+    }
+
+    detectLoop();
+    step();
   }
 
   function cancelAutoScroll() {
@@ -497,6 +607,7 @@
     }
     log("auto-scroll cancelled by user");
     showToast("Scroll cancelled");
+    updateButtonVisibility();
   }
 
   // --- Tab change detection ---
@@ -525,33 +636,6 @@
     check();
   }
 
-  // --- Periodic save ---
-
-  function startPeriodicSave() {
-    if (saveTimer) clearInterval(saveTimer);
-
-    function doSave() {
-      if (!isContextValid()) {
-        clearInterval(saveTimer);
-        return;
-      }
-      if (
-        isOnHomePage() &&
-        !isOnForYouTab() &&
-        !trackingPaused &&
-        lastSeenHref
-      ) {
-        saveLastSeenTweet();
-      }
-    }
-
-    // First save after 5 minutes, then every SAVE_INTERVAL_MS
-    setTimeout(() => {
-      doSave();
-      saveTimer = setInterval(doSave, SAVE_INTERVAL_MS);
-    }, FIRST_SAVE_DELAY_MS);
-  }
-
   // --- Init ---
 
   function init() {
@@ -561,32 +645,17 @@
     // Feature 2: scroll button + tracking
     scrollButton = createScrollButton();
     updateButtonVisibility();
-    startLastSeenTracking();
-    startPeriodicSave();
     watchTabChanges();
 
-    // Save when leaving page or switching tabs (more reliable than beforeunload alone)
-    function trySave() {
-      if (
-        isOnHomePage() &&
-        !isOnForYouTab() &&
-        !trackingPaused &&
-        lastSeenHref
-      ) {
-        saveLastSeenTweet();
-      }
-    }
-    function trySaveIfOldEnough() {
-      if (Date.now() - pageLoadTime >= MIN_TIME_BEFORE_SAVE_MS) {
-        trySave();
-      }
-    }
-    window.addEventListener("beforeunload", trySaveIfOldEnough);
+    // Track reading position from the scroll event (debounced).
+    window.addEventListener("scroll", onUserScroll, { passive: true });
+
+    // Persist immediately when the tab is hidden / closed (reliable on tab
+    // switch, minimize, window close — unlike beforeunload).
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") {
-        trySaveIfOldEnough();
-      }
+      if (document.visibilityState === "hidden") captureAndSave();
     });
+    window.addEventListener("beforeunload", captureAndSave);
 
     // Handle SPA navigation (URL changes without page reload)
     let lastUrl = location.href;
@@ -599,7 +668,7 @@
     });
     urlObserver.observe(document.body, { childList: true, subtree: true });
 
-    log("initialized - features: tab restriction + scroll-to-last-seen");
+    log("initialized — features: tab restriction + scroll-to-last-seen");
   }
 
   init();
