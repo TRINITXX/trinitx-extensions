@@ -16,6 +16,36 @@
     </header>
 
     <main id="modules">
+      <!-- Recharger les onglets -->
+      <section class="module" data-module="reloadTabs">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>Recharger les onglets</h2>
+            <p>Recharge tous les onglets de la fenêtre active.</p>
+          </div>
+          <button type="button" id="reload-tabs-btn" class="btn">
+            ⟳ Recharger
+          </button>
+        </div>
+        <div class="module-extra">
+          <a href="#" class="action" data-action="toggle-filters"
+            >Filtres d'exclusion →</a
+          >
+        </div>
+        <div class="filters-panel" id="filters-panel" hidden>
+          <label for="reload-patterns">
+            Exclure les onglets dont l'URL correspond (séparés par virgule,
+            <code>*</code> = joker) :
+          </label>
+          <textarea
+            id="reload-patterns"
+            rows="3"
+            placeholder="*.youtube.com/*, *.twitch.tv/*"
+            spellcheck="false"
+          ></textarea>
+        </div>
+      </section>
+
       <!-- PiP -->
       <section class="module" data-module="pip">
         <div class="module-row">

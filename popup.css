@@ -113,6 +113,70 @@ main {
   text-decoration: underline;
 }
 
+/* Bouton d'action (Recharger) */
+.btn {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.05s;
+}
+.btn:hover {
+  background: #2f74e0;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Panneau filtres d'exclusion */
+.filters-panel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.filters-panel label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.filters-panel code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  background: #11141a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.filters-panel textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 54px;
+  background: #11141a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 9px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.filters-panel textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* Switch */
 .switch {
   position: relative;

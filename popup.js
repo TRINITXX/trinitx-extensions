@@ -48,6 +48,50 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     });
 
+  // --- Recharger les onglets -------------------------------------------------
+  const reloadBtn = document.getElementById("reload-tabs-btn");
+  const patternsEl = document.getElementById("reload-patterns");
+  const filtersPanel = document.getElementById("filters-panel");
+
+  // Charge les patterns sauvegardes dans le textarea
+  const { reloadSkipPatterns } =
+    await chrome.storage.local.get("reloadSkipPatterns");
+  patternsEl.value = reloadSkipPatterns || "";
+
+  // Sauvegarde : debounced pendant la frappe, immediate au blur
+  const savePatterns = () =>
+    chrome.storage.local.set({ reloadSkipPatterns: patternsEl.value });
+  let saveTimer;
+  patternsEl.addEventListener("input", () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(savePatterns, 350);
+  });
+  patternsEl.addEventListener("blur", () => {
+    clearTimeout(saveTimer);
+    savePatterns();
+  });
+
+  // Clic -> le background recharge la fenetre active et renvoie les comptes
+  reloadBtn.addEventListener("click", async () => {
+    reloadBtn.disabled = true;
+    try {
+      const res = (await chrome.runtime.sendMessage({
+        type: "reload-tabs",
+      })) || {
+        reloaded: 0,
+        skipped: 0,
+      };
+      const plural = (n) => (n > 1 ? "s" : "");
+      let msg = `${res.reloaded} rechargé${plural(res.reloaded)}`;
+      if (res.skipped) msg += ` · ${res.skipped} ignoré${plural(res.skipped)}`;
+      showStatus(msg);
+    } catch {
+      showStatus("Erreur");
+    } finally {
+      reloadBtn.disabled = false;
+    }
+  });
+
   // Actions
   document.querySelectorAll("a.action").forEach((a) => {
     a.addEventListener("click", async (e) => {
@@ -58,6 +102,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else if (action === "clear-scroll") {
         await chrome.storage.local.remove("lastSeenTweetHref");
         showStatus("Position effacée");
+      } else if (action === "toggle-filters") {
+        filtersPanel.hidden = !filtersPanel.hidden;
+        a.textContent = filtersPanel.hidden
+          ? "Filtres d'exclusion →"
+          : "Filtres d'exclusion ↓";
+        if (!filtersPanel.hidden) patternsEl.focus();
       }
     });
   });

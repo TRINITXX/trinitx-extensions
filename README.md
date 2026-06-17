@@ -1,14 +1,15 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 4 modules dans une seule extension, avec un popup pour
-activer/désactiver chacun.
+Suite perso regroupant 4 modules + 1 action utilitaire dans une seule
+extension, avec un popup pour activer/désactiver chacun.
 
-| Module                  | Site(s)            | Ce qu'il fait                                                                                                                |
-| ----------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **PiP hotkey + mute**   | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet |
-| **X — Tri par likes**   | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                        |
-| **X — Auto-scroll**     | x.com              | Reprend ta position de lecture sur le fil                                                                                    |
-| **X — Block en 1 clic** | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                           |
+| Module                    | Site(s)            | Ce qu'il fait                                                                                                                |
+| ------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **PiP hotkey + mute**     | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet |
+| **X — Tri par likes**     | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                        |
+| **X — Auto-scroll**       | x.com              | Reprend ta position de lecture sur le fil                                                                                    |
+| **X — Block en 1 clic**   | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                           |
+| **Recharger les onglets** | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)           |
 
 ## Installer
 
@@ -57,6 +58,27 @@ revenir en arrière, et le tweet est grisé en attendant.
 
 L'icône reste discrète (gris au repos, à peine plus marquée au survol) et
 apparaît sur le fil, les pages de tweet et les fils de réponses.
+
+## Recharger les onglets
+
+Le bouton **⟳ Recharger** (première carte du popup) recharge **tous les onglets
+de la fenêtre active** — épinglés inclus. Un compte s'affiche en pied de popup
+(ex. _« 7 rechargés · 2 ignorés »_).
+
+Le lien **Filtres d'exclusion →** déplie une zone de texte pour exclure des
+onglets du rechargement. Les patterns sont :
+
+- **séparés par des virgules** ;
+- comparés au **host + chemin** de l'URL, **sans le protocole**
+  (ex. `www.youtube.com/watch?v=…`) ;
+- avec `*` comme **joker** (n'importe quoi, y compris vide), insensibles à la
+  casse, et **ancrés** (le pattern doit décrire l'URL entière).
+
+Exemple : `*.youtube.com/*, *.twitch.tv/*` ignore toutes les pages YouTube et
+Twitch. Note : `*.youtube.com/*` exige un sous-domaine (à cause du point) ; pour
+attraper aussi `youtube.com` nu, écrire `*youtube.com/*`. Les patterns sont
+mémorisés dans `chrome.storage.local` (clé `reloadSkipPatterns`). Les onglets non
+rechargeables (`chrome://`, Web Store…) sont ignorés silencieusement.
 
 ## Le bandeau jaune de débogage (module PiP)
 

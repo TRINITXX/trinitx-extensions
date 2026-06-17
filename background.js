@@ -330,6 +330,80 @@ async function handleToggleMute() {
 }
 
 // ===========================================================================
+// MODULE Recharger les onglets — bouton popup + filtres d'exclusion
+// ===========================================================================
+const RELOAD_PATTERNS_KEY = "reloadSkipPatterns";
+
+// Convertit un pattern type "*.youtube.com/*" en RegExp ancree, insensible casse.
+function patternToRegex(pattern) {
+  const escaped = pattern
+    .trim()
+    .replace(/[.+?^${}()|[\]\\]/g, "\\$&") // echappe les specials regex...
+    .replace(/\*/g, ".*"); // ...sauf le joker, traduit en ".*"
+  return new RegExp("^" + escaped + "$", "i");
+}
+
+// Cible du match : host + chemin + query, SANS le protocole
+// (ex: "www.youtube.com/watch?v=x"). Fallback si l'URL n'est pas parsable.
+function urlToMatchTarget(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    return u.host + u.pathname + u.search;
+  } catch {
+    return String(rawUrl || "").replace(/^[a-z]+:\/\//i, "");
+  }
+}
+
+function parseSkipPatterns(raw) {
+  return String(raw || "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+function shouldSkipUrl(rawUrl, patterns) {
+  if (!patterns.length) return false;
+  const target = urlToMatchTarget(rawUrl);
+  return patterns.some((p) => {
+    try {
+      return patternToRegex(p).test(target);
+    } catch {
+      return false; // pattern malforme -> on l'ignore plutot que de planter
+    }
+  });
+}
+
+// Recharge tous les onglets de la fenetre active, sauf ceux exclus par filtre.
+async function reloadWindowTabs() {
+  const stored = await chrome.storage.local.get(RELOAD_PATTERNS_KEY);
+  const patterns = parseSkipPatterns(stored[RELOAD_PATTERNS_KEY]);
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ currentWindow: true });
+  } catch (e) {
+    console.warn(TAG, "query onglets echec:", e.message);
+    return { reloaded: 0, skipped: 0, failed: 0 };
+  }
+  let reloaded = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const tab of tabs) {
+    if (shouldSkipUrl(tab.url, patterns)) {
+      skipped++;
+      continue;
+    }
+    try {
+      await chrome.tabs.reload(tab.id);
+      reloaded++;
+    } catch {
+      failed++; // chrome://, Web Store, onglet inaccessible -> ignore
+    }
+  }
+  console.log(TAG, "reload onglets:", { reloaded, skipped, failed });
+  return { reloaded, skipped, failed };
+}
+
+// ===========================================================================
 // Wiring
 // ===========================================================================
 chrome.commands.onCommand.addListener(async (command) => {
@@ -340,6 +414,13 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
   if (command === "toggle-pip") handleTogglePip();
   else if (command === "toggle-mute") handleToggleMute();
+});
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg && msg.type === "reload-tabs") {
+    reloadWindowTabs().then(sendResponse);
+    return true; // reponse asynchrone
+  }
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
