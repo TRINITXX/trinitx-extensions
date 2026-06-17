@@ -12,6 +12,8 @@ const DEFAULT_MODULES = {
   xAutoScroll: true,
   xQuickBlock: true,
   twitchNoSub: true,
+  youtubeCustomSpeed: true,
+  youtubeNoTranslation: true,
 };
 
 // Modules a base de content scripts (enregistres seulement si actives)
@@ -47,6 +49,27 @@ const CONTENT_MODULES = {
     matches: ["*://x.com/*"],
     world: "ISOLATED",
     runAt: "document_idle",
+  },
+  youtubeCustomSpeed: {
+    id: "youtube-custom-speed",
+    js: ["modules/youtube-custom-speed/content.js"],
+    matches: ["*://www.youtube.com/*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
+  },
+  // Vendore depuis YouG-o/YouTube-No-Translation (AGPL-3.0). Le content script
+  // ISOLATED injecte lui-meme ses scripts monde MAIN (web_accessible_resources).
+  // document_start + allFrames comme l'upstream -> recharger l'onglet apres ON.
+  youtubeNoTranslation: {
+    id: "youtube-no-translation",
+    js: [
+      "modules/youtube-no-translation/dist/browser-polyfill.js",
+      "modules/youtube-no-translation/dist/content/content.js",
+    ],
+    matches: ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"],
+    world: "ISOLATED",
+    runAt: "document_start",
+    allFrames: true,
   },
 };
 

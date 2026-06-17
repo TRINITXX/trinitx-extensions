@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+    
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="../styles/main.css">
+        <title id="extensionTitle"></title>
+        <!-- Hidden SVG definitions for reuse -->
+        <svg style="display: none;">
+            <defs>
+                <!-- Desktop icon -->
+                <symbol id="icon-desktop" viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/>
+                </symbol>
+            </defs>
+        </svg>
+    </head>
+    
+    <body class="w-[300px] bg-gray-700">
+        <div class="p-4 relative">
+
+            <header class="pb-4 border-b border-gray-600">
+                <h1 class="text-lg font-medium text-white flex items-center gap-2">
+                    <a href="https://youtube-no-translation.vercel.app/" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 hover:opacity-90 transition-opacity">
+                        <img src="../assets/icons/icon.png" alt="Logo" class="w-5 h-5">
+                        <span id="extensionName"></span>
+                    </a>
+                </h1>
+                <div class="text-xs text-gray-400 flex items-center gap-1">
+                    <span data-i18n="popup_createdBy"></span>
+                    <a href="https://github.com/YouG-o" target="_blank" rel="noopener noreferrer">
+                        <img src="../assets/icons/Github-Dark.svg" alt="GitHub" title="GitHub" class="w-4 h-4 hover:opacity-80 transition-opacity">
+                    </a>
+                </div>
+            </header>
+
+        <main class="py-4 pb-[70px]">
+            <div class="space-y-4">
+                <!-- Original Titles Feature -->
+                <div class="p-3 rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <button type="button" class="text-gray-400 cursor-help hover:text-gray-300 transition-colors" data-i18n-title="popup_originalTitles_tooltip">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                </svg>
+                            </button>
+                            <h2 class="text-sm font-medium text-white" data-i18n="popup_originalTitles"></h2>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" id="titleTranslation">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                </div>
+                <!-- Original Audio Feature -->
+                <div class="p-3 rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <button type="button" class="text-gray-400 cursor-help hover:text-gray-300 transition-colors" data-i18n-title="popup_audioTracks_tooltip">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                </svg>
+                            </button>
+                            <h2 class="text-sm font-medium text-white" data-i18n="popup_audioTracks"></h2>
+                            <!-- Desktop badge unchanged -->
+                            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-blue-900/40 text-blue-300 rounded border border-blue-500/30" data-i18n-title="popup_audioTracks_desktopOnly_title">
+                                <svg class="w-3 h-3" aria-hidden="true">
+                                    <use href="#icon-desktop"></use>
+                                </svg>
+                                <span data-i18n="popup_audioTracks_desktopOnly"></span>
+                            </span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" id="audioTranslation">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                    <div class="mt-2 audio-language-container" id="audioLanguageContainer">
+                        <select id="audioLanguage" class="w-full bg-gray-800 text-white text-sm rounded-lg px-2 py-1 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="original" data-i18n="language_original"></option>
+                            <option value="en" data-i18n="language_en"></option>
+                            <option value="fr" data-i18n="language_fr"></option>
+                            <option value="es" data-i18n="language_es"></option>
+                            <option value="ar" data-i18n="language_ar"></option>
+                            <option value="zh" data-i18n="language_zh"></option>
+                            <option value="nl" data-i18n="language_nl"></option>
+                            <option value="de" data-i18n="language_de"></option>
+                            <option value="he" data-i18n="language_he"></option>
+                            <option value="hi" data-i18n="language_hi"></option>
+                            <option value="id" data-i18n="language_id"></option>
+                            <option value="it" data-i18n="language_it"></option>
+                            <option value="ja" data-i18n="language_ja"></option>
+                            <option value="ko" data-i18n="language_ko"></option>
+                            <option value="pl" data-i18n="language_pl"></option>
+                            <option value="pt" data-i18n="language_pt"></option>
+                            <option value="ru" data-i18n="language_ru"></option>
+                            <option value="tr" data-i18n="language_tr"></option>
+                            <option value="uk" data-i18n="language_uk"></option>
+                            <option value="vi" data-i18n="language_vi"></option>
+                        </select>
+                    </div>
+                </div>
+                <!-- Original Descriptions Feature -->
+                <div class="p-3 rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <button type="button" class="text-gray-400 cursor-help hover:text-gray-300 transition-colors" data-i18n-title="popup_originalDescriptions_tooltip">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                </svg>
+                            </button>
+                            <h2 class="text-sm font-medium text-white" data-i18n="popup_originalDescriptions"></h2>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" id="descriptionTranslation">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                </div>
+                <!-- Original Thumbnails Feature -->
+                <div class="p-3 rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <button type="button" class="text-gray-400 cursor-help hover:text-gray-300 transition-colors" data-i18n-title="popup_originalThumbnails_tooltip">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                </svg>
+                            </button>
+                            <h2 class="text-sm font-medium text-white" data-i18n="popup_originalThumbnails"></h2>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" id="originalThumbnails">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                </div>
+                <!-- Original Subtitles Feature -->
+                <div class="p-3 rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <button type="button" class="text-gray-400 cursor-help hover:text-gray-300 transition-colors" data-i18n-title="popup_subtitles_tooltip">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                </svg>
+                            </button>
+                            <h2 class="text-sm font-medium text-white" data-i18n="popup_subtitles"></h2>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" id="subtitlesTranslation">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                     <!-- Language selector -->
+                    <div class="mt-2 subtitles-language-container" id="subtitlesLanguageContainer">
+                        <select id="subtitlesLanguage" class="w-full bg-gray-800 text-white text-sm rounded-lg px-2 py-1 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="original" data-i18n="language_original"></option>
+                            <option value="disabled" data-i18n="language_disabled"></option>
+                            <option value="en" data-i18n="language_en"></option>
+                            <option value="fr" data-i18n="language_fr"></option>
+                            <option value="es" data-i18n="language_es"></option>
+                            <option value="ar" data-i18n="language_ar"></option>
+                            <option value="zh" data-i18n="language_zh"></option>
+                            <option value="nl" data-i18n="language_nl"></option>
+                            <option value="de" data-i18n="language_de"></option>
+                            <option value="he" data-i18n="language_he"></option>
+                            <option value="hi" data-i18n="language_hi"></option>
+                            <option value="id" data-i18n="language_id"></option>
+                            <option value="it" data-i18n="language_it"></option>
+                            <option value="ja" data-i18n="language_ja"></option>
+                            <option value="ko" data-i18n="language_ko"></option>
+                            <option value="pl" data-i18n="language_pl"></option>
+                            <option value="pt" data-i18n="language_pt"></option>
+                            <option value="ru" data-i18n="language_ru"></option>
+                            <option value="tr" data-i18n="language_tr"></option>
+                            <option value="uk" data-i18n="language_uk"></option>
+                            <option value="vi" data-i18n="language_vi"></option>
+                        </select>
+                    </div>
+                    <!-- ASR Toggle -->
+                    <div class="mt-2 asr-toggle-container" id="asrToggleContainer" style="display: none;">
+                        <div class="flex items-center justify-between p-2 rounded border border-gray-500 bg-gray-800/50">
+                            <div class="flex items-center gap-2">
+                                <button type="button" class="text-gray-400 cursor-help hover:text-gray-300 transition-colors" data-i18n-title="popup_subtitles_asrToggle_tooltip">
+                                    <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2	v2zm0-4h-2V7h2v6z"/>
+                                    </svg>
+                                </button>
+                                <h3 class="text-xs font-medium text-gray-200" data-i18n="popup_subtitles_asrToggle"></h3>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" class="sr-only peer" id="asrSubtitlesEnabled">
+                                <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <!-- Extra Settings Section -->
+                <div class="p-3 rounded-lg border border-orange-500 bg-gray-800/50">
+                    <div class="flex items-center justify-between cursor-pointer" id="extraSettingsToggle">
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-sm font-medium text-orange-400" data-i18n="popup_extraSettings"></h2>
+                        </div>
+                        <svg id="extraSettingsArrow" class="w-4 h-4 text-orange-400 transform transition-transform duration-200" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M7 10l5 5 5-5H7z"/>
+                        </svg>
+                    </div>
+
+                    <div id="extraSettingsContent" class="mt-3 space-y-3 hidden">
+                        <!-- YouTube Data API v3 -->
+                        <div class="p-2 rounded border border-blue-500 bg-blue-900/30 mb-2">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <button type="button" class="text-blue-300 cursor-help hover:text-blue-200 transition-colors" data-i18n-title="popup_extraSettings_youtubeDataApi_tooltip">
+                                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2	v2zm0-4h-2V7h2v6z"/>
+                                        </svg>
+                                    </button>
+                                    <h3 class="text-xs font-medium text-blue-200" data-i18n="popup_extraSettings_youtubeDataApi"></h3>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" class="sr-only peer" id="youtubeDataApiEnabled">
+                                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                            <div class="mt-2 youtube-api-key-container" id="youtubeApiKeyContainer" style="display: none;">
+                                <input type="password" id="youtubeDataApiKey" data-i18n-placeholder="popup_extraSettings_youtubeDataApi_placeholder" class="w-full bg-gray-800 text-white text-xs rounded px-2 py-1 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                                <div class="mt-1 text-xs text-gray-400">
+                                    <a href="https://developers.google.com/youtube/v3/getting-started" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300" data-i18n="popup_extraSettings_youtubeDataApi_link"></a>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Dev Log -->
+                        <div class="p-2 rounded border border-gray-500 bg-gray-800/50">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <button type="button" class="text-gray-400 cursor-help hover:text-gray-300 transition-colors" data-i18n-title="popup_extraSettings_devLog_tooltip">
+                                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                        </svg>
+                                    </button>
+                                    <h3 class="text-xs font-medium text-gray-200" data-i18n="popup_extraSettings_devLog"></h3>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" class="sr-only peer" id="devLogEnabled">
+                                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[300px] flex flex-col gap-2 pt-2 pb-2 bg-gray-700 border-t border-gray-600 z-50">
+            <div class="flex justify-center">
+                <a href="https://ko-fi.com/yougo" target="_blank" rel="noopener noreferrer" data-i18n-title="popup_kofi_title">
+                    <img src="../assets/icons/ko-fi.png" data-i18n-alt="popup_kofi_alt" class="max-h-8">
+                </a>
+            </div>
+            <div class="grid grid-cols-3 items-center px-3 gap-2 text-xs">
+                <div class="flex items-center justify-start">
+                    <p class="text-gray-400">v<span id="extensionVersion"></span></p>
+                </div>
+                <div class="flex justify-center">
+                    <button id="clearCacheBtn" class="text-red-400 hover:text-red-300 transition-colors flex items-center gap-1 disabled:opacity-50" data-i18n-title="popup_clearCache_title">
+                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                        </svg>
+                        <span data-i18n="popup_clearCache"></span>
+                    </button>
+                </div>
+                <div class="flex justify-end">
+                    <a href="https://github.com/YouG-o/YouTube_No_Translation/issues"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-i18n-title="popup_reportIssue"
+                        class="w-full text-right text-gray-400 hover:text-gray-300 transition-colors flex flex-wrap justify-end items-center gap-1">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                        </svg>
+                        <span class="sr-only" data-i18n="popup_reportIssue"></span>
+                    </a>
+                </div>
+            </div>
+        </footer>
+
+    </div>
+    <script src="../browser-polyfill.js"></script>
+    <script src="popup.js" type="module"></script>
+    </body>
+</html>

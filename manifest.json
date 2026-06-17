@@ -3,12 +3,14 @@
   "name": "TRINITX Extensions perso",
   "version": "1.0.0",
   "description": "Suite perso : PiP hotkey + mute (YouTube/Twitch), tri X par likes, auto-scroll X. Active/desactive chaque module depuis le popup.",
+  "default_locale": "en",
   "background": {
     "service_worker": "background.js"
   },
   "permissions": ["scripting", "tabs", "storage", "debugger"],
   "host_permissions": [
     "*://*.youtube.com/*",
+    "*://*.youtube-nocookie.com/*",
     "*://*.twitch.tv/*",
     "https://static.twitchcdn.net/assets/*",
     "*://x.com/*",
@@ -21,6 +23,14 @@
         "modules/twitch-nosub/chrome/app.js"
       ],
       "matches": ["https://*.twitch.tv/*"]
+    },
+    {
+      "resources": [
+        "modules/youtube-no-translation/dist/content/scripts/*.js",
+        "modules/youtube-no-translation/dist/content/toast.html",
+        "modules/youtube-no-translation/dist/assets/icons/*"
+      ],
+      "matches": ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"]
     }
   ],
   "icons": {

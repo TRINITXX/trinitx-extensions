@@ -1,16 +1,18 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 5 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 7 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
-| Module                    | Site(s)            | Ce qu'il fait                                                                                                                |
-| ------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **PiP hotkey + mute**     | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet |
-| **X — Tri par likes**     | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                        |
-| **X — Auto-scroll**       | x.com              | Reprend ta position de lecture sur le fil                                                                                    |
-| **X — Block en 1 clic**   | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                           |
-| **Twitch — VOD sub-only** | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))            |
-| **Recharger les onglets** | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)           |
+| Module                          | Site(s)            | Ce qu'il fait                                                                                                                                |
+| ------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PiP hotkey + mute**           | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet                 |
+| **X — Tri par likes**           | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                                        |
+| **X — Auto-scroll**             | x.com              | Reprend ta position de lecture sur le fil                                                                                                    |
+| **X — Block en 1 clic**         | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                                           |
+| **Twitch — VOD sub-only**       | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
+| **YouTube — Vitesse perso**     | youtube.com        | Boutons `−` / `+` dans le lecteur pour régler la vitesse au-delà de 2x (jusqu'à 16x) ; clic sur le chiffre = retour à 1x                     |
+| **YouTube — Pas de traduction** | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
+| **Recharger les onglets**       | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)                           |
 
 ## Installer
 
@@ -36,19 +38,26 @@ mémorisé dans `chrome.storage`.
 
 ```
 trinitx-extensions/
-├── manifest.json          # permissions + commandes + popup
+├── manifest.json          # permissions + commandes + popup (+ default_locale)
 ├── background.js          # orchestrateur : registration dynamique + PiP
 ├── popup.html / .css / .js
+├── _locales/              # i18n de la page de réglages YNT (chrome.i18n)
 └── modules/
     ├── x-auto-sort/main.js        # monde MAIN, intercepte fetch/XHR
     ├── x-auto-scroll/content.js   # monde ISOLATED, scroll position
     ├── x-quick-block/content.js   # monde ISOLATED, block 1 clic (API interne X)
-    └── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)
-        ├── restriction-remover.js # ISOLATED, retire les overlays sub-only
-        ├── twitchnosub.js         # ISOLATED, injecte app.js dans le monde MAIN
-        ├── chrome/app.js          # MAIN, definit patch_url (CDN jsdelivr)
-        ├── app.js                 # MAIN, surcharge window.Worker
-        └── LICENSE                # Apache-2.0 (attribution)
+    ├── youtube-custom-speed/content.js  # monde ISOLATED, widget vitesse perso
+    ├── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)
+    │   ├── restriction-remover.js # ISOLATED, retire les overlays sub-only
+    │   ├── twitchnosub.js         # ISOLATED, injecte app.js dans le monde MAIN
+    │   ├── chrome/app.js          # MAIN, definit patch_url (CDN jsdelivr)
+    │   ├── app.js                 # MAIN, surcharge window.Worker
+    │   └── LICENSE                # Apache-2.0 (attribution)
+    └── youtube-no-translation/   # vendoré depuis YouG-o/... (AGPL-3.0)
+        ├── dist/content/content.js     # ISOLATED, orchestre tout
+        ├── dist/content/scripts/*.js   # MAIN (web_accessible_resources)
+        ├── dist/popup/settings.html    # page de réglages (sous-titres, langues, API)
+        └── LICENSE                     # AGPL-3.0 (attribution)
 ```
 
 Les modules « content script » (X) sont enregistrés/retirés dynamiquement via
@@ -112,6 +121,41 @@ quand `usher.ttvnw.net` refuse la VOD.
 - C'est un projet **work in progress** côté amont ; certaines VOD (selon le type
   et l'ancienneté) peuvent ne pas fonctionner.
 
+## Le module « YouTube — Pas de traduction »
+
+Intègre [**YouTube-No-Translation**](https://github.com/YouG-o/YouTube-No-Translation)
+de **YouG-o** (licence **AGPL-3.0**, voir
+`modules/youtube-no-translation/LICENSE`) pour garder le contenu YouTube dans sa
+langue d'origine : titres, descriptions, **piste audio (anti-doublage)**,
+miniatures et sous-titres.
+
+Fonctionnement : le **build compilé upstream** est vendoré tel quel dans
+`modules/youtube-no-translation/dist/`. Un content script ISOLATED
+(`content.js`) s'enregistre au `document_start` sur `youtube.com` /
+`youtube-nocookie.com` et injecte lui-même ses scripts du monde **MAIN**
+(`content/scripts/*.js`, déclarés en `web_accessible_resources`) qui lisent
+`ytInitialPlayerResponse` et l'**API interne InnerTube** de YouTube pour
+récupérer les libellés non traduits.
+
+⚠️ **À savoir :**
+
+- **Activation** : comme le module s'accroche au `document_start`, **recharge
+  l'onglet YouTube** après l'avoir activé.
+- **Réglages** : le lien _« Réglages »_ de la carte ouvre la page de réglages
+  upstream (`dist/popup/settings.html`) — c'est là qu'on active les sous-titres
+  (OFF par défaut), qu'on choisit les langues audio/sous-titres, ou qu'on
+  renseigne une clé **YouTube Data API v3** (optionnelle, sinon le fallback
+  InnerTube same-origin suffit). Elle nécessite `_locales/` + `default_locale`
+  (ajoutés au manifest) pour `chrome.i18n`.
+- **Modifs locales** : seuls deux changements par rapport au build amont — les
+  chemins `getURL("dist/…")` re-préfixés en
+  `getURL("modules/youtube-no-translation/dist/…")`, et le toast de don
+  (`askForSupport`) désactivé par défaut. Pour soutenir l'auteur :
+  [ko-fi.com/yougo](https://ko-fi.com/yougo).
+- **Mise à jour** : re-télécharger la release Chromium, ré-appliquer ces deux
+  patchs (le service worker `dist/background` et `dist/_locales` redondants sont
+  retirés ; `_locales/` racine sert à l'i18n).
+
 ## Le bandeau jaune de débogage (module PiP)
 
 Ouvrir un PiP à distance fait clignoter ~1 s le bandeau « ... a commencé à
@@ -130,3 +174,9 @@ pip-remote pour les détails).
 ## Licence
 
 [MIT](LICENSE) © 2026 TRINITX
+
+Composants vendorés sous leur propre licence : `modules/twitch-nosub/`
+(**Apache-2.0**, besuper) et `modules/youtube-no-translation/` (**AGPL-3.0**,
+YouG-o). L'AGPL est un copyleft fort : si cette extension venait à être
+**distribuée**, la combinaison serait concernée. Pour un usage **perso non
+distribué**, c'est sans incidence pratique.

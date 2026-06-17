@@ -5,6 +5,8 @@ const DEFAULT_MODULES = {
   xAutoScroll: true,
   xQuickBlock: true,
   twitchNoSub: true,
+  youtubeCustomSpeed: true,
+  youtubeNoTranslation: true,
 };
 
 function showStatus(msg) {
@@ -100,6 +102,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       const action = a.dataset.action;
       if (action === "shortcuts") {
         chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
+      } else if (action === "ynt-settings") {
+        chrome.tabs.create({
+          url: chrome.runtime.getURL(
+            "modules/youtube-no-translation/dist/popup/settings.html",
+          ),
+        });
       } else if (action === "clear-scroll") {
         await chrome.storage.local.remove("lastSeenTweetHref");
         showStatus("Position effacée");
