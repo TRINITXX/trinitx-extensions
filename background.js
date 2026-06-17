@@ -11,6 +11,7 @@ const DEFAULT_MODULES = {
   xAutoSort: true,
   xAutoScroll: true,
   xQuickBlock: true,
+  xHideSponsored: true,
   twitchNoSub: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
@@ -46,6 +47,13 @@ const CONTENT_MODULES = {
   xQuickBlock: {
     id: "x-quick-block",
     js: ["modules/x-quick-block/content.js"],
+    matches: ["*://x.com/*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
+  },
+  xHideSponsored: {
+    id: "x-hide-sponsored",
+    js: ["modules/x-hide-sponsored/content.js"],
     matches: ["*://x.com/*"],
     world: "ISOLATED",
     runAt: "document_idle",

@@ -4,6 +4,7 @@ const DEFAULT_MODULES = {
   xAutoSort: true,
   xAutoScroll: true,
   xQuickBlock: true,
+  xHideSponsored: true,
   twitchNoSub: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,

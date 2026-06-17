@@ -1,18 +1,19 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 7 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 8 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
-| Module                          | Site(s)            | Ce qu'il fait                                                                                                                                |
-| ------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PiP hotkey + mute**           | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet                 |
-| **X — Tri par likes**           | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                                        |
-| **X — Auto-scroll**             | x.com              | Reprend ta position de lecture sur le fil                                                                                                    |
-| **X — Block en 1 clic**         | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                                           |
-| **Twitch — VOD sub-only**       | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
-| **YouTube — Vitesse perso**     | youtube.com        | Boutons `−` / `+` dans le lecteur pour régler la vitesse au-delà de 2x (jusqu'à 16x) ; clic sur le chiffre = retour à 1x                     |
-| **YouTube — Pas de traduction** | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
-| **Recharger les onglets**       | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)                           |
+| Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
+| -------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PiP hotkey + mute**            | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet                 |
+| **X — Tri par likes**            | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                                        |
+| **X — Auto-scroll**              | x.com              | Reprend ta position de lecture sur le fil                                                                                                    |
+| **X — Block en 1 clic**          | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                                           |
+| **X — Masquer les partenariats** | x.com              | Cache les tweets marqués « Partenariat rémunéré » (contenus sponsorisés) et la suite du thread quand l'auteur enchaîne des réponses          |
+| **Twitch — VOD sub-only**        | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
+| **YouTube — Vitesse perso**      | youtube.com        | Boutons `−` / `+` dans le lecteur pour régler la vitesse au-delà de 2x (jusqu'à 16x) ; clic sur le chiffre = retour à 1x                     |
+| **YouTube — Pas de traduction**  | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
+| **Recharger les onglets**        | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)                           |
 
 ## Installer
 
@@ -46,6 +47,7 @@ trinitx-extensions/
     ├── x-auto-sort/main.js        # monde MAIN, intercepte fetch/XHR
     ├── x-auto-scroll/content.js   # monde ISOLATED, scroll position
     ├── x-quick-block/content.js   # monde ISOLATED, block 1 clic (API interne X)
+    ├── x-hide-sponsored/content.js  # monde ISOLATED, masque les partenariats rémunérés
     ├── youtube-custom-speed/content.js  # monde ISOLATED, widget vitesse perso
     ├── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)
     │   ├── restriction-remover.js # ISOLATED, retire les overlays sub-only
