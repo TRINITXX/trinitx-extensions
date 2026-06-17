@@ -4,6 +4,7 @@ const DEFAULT_MODULES = {
   xAutoSort: true,
   xAutoScroll: true,
   xQuickBlock: true,
+  twitchNoSub: true,
 };
 
 function showStatus(msg) {

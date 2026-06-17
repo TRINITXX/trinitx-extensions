@@ -11,10 +11,22 @@ const DEFAULT_MODULES = {
   xAutoSort: true,
   xAutoScroll: true,
   xQuickBlock: true,
+  twitchNoSub: true,
 };
 
 // Modules a base de content scripts (enregistres seulement si actives)
 const CONTENT_MODULES = {
+  twitchNoSub: {
+    id: "twitch-nosub",
+    js: [
+      "modules/twitch-nosub/restriction-remover.js",
+      "modules/twitch-nosub/twitchnosub.js",
+    ],
+    matches: ["*://*.twitch.tv/*"],
+    world: "ISOLATED",
+    runAt: "document_start",
+    allFrames: true,
+  },
   xAutoSort: {
     id: "x-auto-sort",
     js: ["modules/x-auto-sort/main.js"],
@@ -65,7 +77,7 @@ async function syncRegistrations() {
             matches: def.matches,
             world: def.world,
             runAt: def.runAt,
-            allFrames: false,
+            allFrames: !!def.allFrames,
             persistAcrossSessions: true,
           },
         ]);

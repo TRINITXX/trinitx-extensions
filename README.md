@@ -1,6 +1,6 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 4 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 5 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
 | Module                    | Site(s)            | Ce qu'il fait                                                                                                                |
@@ -9,6 +9,7 @@ extension, avec un popup pour activer/désactiver chacun.
 | **X — Tri par likes**     | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                        |
 | **X — Auto-scroll**       | x.com              | Reprend ta position de lecture sur le fil                                                                                    |
 | **X — Block en 1 clic**   | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                           |
+| **Twitch — VOD sub-only** | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))            |
 | **Recharger les onglets** | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)           |
 
 ## Installer
@@ -41,7 +42,13 @@ trinitx-extensions/
 └── modules/
     ├── x-auto-sort/main.js        # monde MAIN, intercepte fetch/XHR
     ├── x-auto-scroll/content.js   # monde ISOLATED, scroll position
-    └── x-quick-block/content.js   # monde ISOLATED, block 1 clic (API interne X)
+    ├── x-quick-block/content.js   # monde ISOLATED, block 1 clic (API interne X)
+    └── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)
+        ├── restriction-remover.js # ISOLATED, retire les overlays sub-only
+        ├── twitchnosub.js         # ISOLATED, injecte app.js dans le monde MAIN
+        ├── chrome/app.js          # MAIN, definit patch_url (CDN jsdelivr)
+        ├── app.js                 # MAIN, surcharge window.Worker
+        └── LICENSE                # Apache-2.0 (attribution)
 ```
 
 Les modules « content script » (X) sont enregistrés/retirés dynamiquement via
@@ -80,6 +87,31 @@ attraper aussi `youtube.com` nu, écrire `*youtube.com/*`. Les patterns sont
 mémorisés dans `chrome.storage.local` (clé `reloadSkipPatterns`). Les onglets non
 rechargeables (`chrome://`, Web Store…) sont ignorés silencieusement.
 
+## Le module « Twitch — VOD sub-only »
+
+Intègre [**TwitchNoSub**](https://github.com/besuper/TwitchNoSub) de **besuper**
+(licence Apache-2.0, voir `modules/twitch-nosub/LICENSE`) pour lire les VOD
+réservées aux abonnés.
+
+Fonctionnement : deux content scripts s'enregistrent sur `twitch.tv` au
+`document_start`. `restriction-remover.js` retire les overlays « sub-only » sur
+les cartes de VOD ; `twitchnosub.js` injecte dans le monde **MAIN** un script qui
+surcharge `window.Worker`, de sorte que le worker WASM du player Amazon IVS
+`importScripts()` le patch **`patch_amazonworker.js`**. Ce patch intercepte
+`fetch` et reconstruit la playlist `.m3u8` depuis l'API GQL publique de Twitch
+quand `usher.ttvnw.net` refuse la VOD.
+
+⚠️ **À savoir :**
+
+- **Code distant** : le patch est chargé à l'exécution depuis le CDN
+  `cdn.jsdelivr.net/gh/besuper/TwitchNoSub@master/...` (comme l'extension amont).
+  Il se met donc à jour tout seul, mais dépend de jsdelivr et de la confiance
+  envers le dépôt amont.
+- **Activation** : comme le module s'accroche au `document_start`, **recharge
+  l'onglet Twitch** après l'avoir activé pour qu'il prenne effet.
+- C'est un projet **work in progress** côté amont ; certaines VOD (selon le type
+  et l'ancienneté) peuvent ne pas fonctionner.
+
 ## Le bandeau jaune de débogage (module PiP)
 
 Ouvrir un PiP à distance fait clignoter ~1 s le bandeau « ... a commencé à
@@ -90,8 +122,8 @@ pip-remote pour les détails).
 
 ## Notes
 
-- **TwitchNoSub** n'est volontairement **pas** inclus (extension tierce, qui
-  bénéficie de ses propres mises à jour).
+- **TwitchNoSub** est désormais intégré comme module (voir ci-dessus) ; il
+  charge son patch depuis le CDN amont, donc il suit les mises à jour de besuper.
 - Pour ajouter un site au tri/scroll X : éditer `host_permissions` et les
   `matches` dans `background.js`.
 
