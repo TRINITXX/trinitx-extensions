@@ -14,6 +14,10 @@ const DEFAULT_MODULES = {
   xHideSponsored: true,
   xDimTheme: true,
   twitchNoSub: true,
+  // Anti-pub Twitch (vaft) : ON par defaut.
+  twitchAdsVaft: true,
+  // Preview video live de la chaine au survol : ON par defaut.
+  twitchPreview: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
 };
@@ -37,6 +41,26 @@ const CONTENT_MODULES = {
     matches: ["*://x.com/*", "*://twitter.com/*"],
     world: "MAIN",
     runAt: "document_start",
+  },
+  // Anti-pub Twitch (vaft, pixeltris/TwitchAdSolutions). Monde MAIN,
+  // document_start : hooke window.Worker/fetch -> recharger l'onglet Twitch
+  // apres activation. Coexiste avec twitchNoSub (reinsertion du worker).
+  twitchAdsVaft: {
+    id: "twitch-ads-vaft",
+    js: ["modules/twitch-ads-vaft/main.js"],
+    matches: ["*://*.twitch.tv/*"],
+    world: "MAIN",
+    runAt: "document_start",
+    allFrames: true,
+  },
+  // Preview video live au survol des chaines (listes Twitch). ISOLATED,
+  // document_idle : ajoute juste des listeners + un iframe player.twitch.tv.
+  twitchPreview: {
+    id: "twitch-preview",
+    js: ["modules/twitch-preview/content.js"],
+    matches: ["*://*.twitch.tv/*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
   },
   xAutoScroll: {
     id: "x-auto-scroll",

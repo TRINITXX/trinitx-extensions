@@ -7,6 +7,8 @@ const DEFAULT_MODULES = {
   xHideSponsored: true,
   xDimTheme: true,
   twitchNoSub: true,
+  twitchAdsVaft: true,
+  twitchPreview: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
 };

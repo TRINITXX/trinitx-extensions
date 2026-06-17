@@ -13,6 +13,32 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  /* Scrollbar moderne et discrète (Firefox / standard) */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 147, 163, 0.35) transparent;
+}
+
+/* Scrollbar moderne et discrète (Chromium / WebKit) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  /* bordure transparente + background-clip = pouce fin "flottant" (~4px) */
+  background: rgba(139, 147, 163, 0.35);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 147, 163, 0.6);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 body {

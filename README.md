@@ -1,6 +1,6 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 9 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 11 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
 | Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
@@ -12,6 +12,8 @@ extension, avec un popup pour activer/désactiver chacun.
 | **X — Masquer les partenariats** | x.com              | Cache les tweets marqués « Partenariat rémunéré » (contenus sponsorisés) et la suite du thread quand l'auteur enchaîne des réponses          |
 | **X — Thème Dim**                | x.com, twitter.com | Restaure le thème bleu « Dim » par-dessus le mode sombre actuel (fond, textes, bordures, scrollbar)                                          |
 | **Twitch — VOD sub-only**        | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
+| **Twitch — Anti-pub (vaft)**     | twitch.tv          | Bloque les pubs des lives (variante _vaft_ de [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions))                           |
+| **Twitch — Preview au survol**   | twitch.tv          | Preview vidéo en direct de la chaîne au survol d'un streamer dans les listes (sidebar, accueil, catégories, recherche) ; muette, flottante   |
 | **YouTube — Vitesse perso**      | youtube.com        | Boutons `−` / `+` dans le lecteur pour régler la vitesse au-delà de 2x (jusqu'à 16x) ; clic sur le chiffre = retour à 1x                     |
 | **YouTube — Pas de traduction**  | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
 | **Recharger les onglets**        | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)                           |
@@ -57,6 +59,8 @@ trinitx-extensions/
     │   ├── chrome/app.js          # MAIN, definit patch_url (CDN jsdelivr)
     │   ├── app.js                 # MAIN, surcharge window.Worker
     │   └── LICENSE                # Apache-2.0 (attribution)
+    ├── twitch-ads-vaft/main.js    # MAIN, anti-pub live (pixeltris/TwitchAdSolutions, vaft)
+    ├── twitch-preview/content.js  # ISOLATED, preview video live au survol (iframe player)
     └── youtube-no-translation/   # vendoré depuis YouG-o/... (AGPL-3.0)
         ├── dist/content/content.js     # ISOLATED, orchestre tout
         ├── dist/content/scripts/*.js   # MAIN (web_accessible_resources)
@@ -124,6 +128,29 @@ quand `usher.ttvnw.net` refuse la VOD.
   l'onglet Twitch** après l'avoir activé pour qu'il prenne effet.
 - C'est un projet **work in progress** côté amont ; certaines VOD (selon le type
   et l'ancienneté) peuvent ne pas fonctionner.
+
+## Le module « Twitch — Anti-pub (vaft) »
+
+Intègre [**TwitchAdSolutions**](https://github.com/pixeltris/TwitchAdSolutions)
+de **pixeltris** (variante **vaft**, la plus récente et la plus complète :
+mitigation du buffering, gestion HEVC…) pour bloquer les pubs des **lives**
+Twitch. Vendoré tel quel (en-tête UserScript conservé pour la provenance et la
+version).
+
+Fonctionnement : le script s'enregistre comme content script monde **MAIN** sur
+`twitch.tv` au `document_start` et surcharge `window.Worker` / `window.fetch`
+pour réécrire la playlist `.m3u8` (segments de pub retirés, flux de secours).
+
+⚠️ **À savoir :**
+
+- **Activation** : comme le module s'accroche au `document_start`, **recharge
+  l'onglet Twitch** après activation. Il est **ON par défaut**.
+- **Coexistence avec « VOD sub-only »** : prévue par l'amont — le script détecte
+  et réinsère le worker de TwitchNoSub dans la chaîne de prototypes. Les deux
+  peuvent donc rester activés ensemble.
+- Projet **work in progress** côté amont ; Twitch faisant évoluer ses défenses,
+  l'efficacité peut varier. Mettre à jour = re-télécharger le `.user.js` amont
+  (`vaft.user.js`) et remplacer `modules/twitch-ads-vaft/main.js`.
 
 ## Le module « YouTube — Pas de traduction »
 
