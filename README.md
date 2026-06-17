@@ -1,13 +1,14 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 3 modules dans une seule extension, avec un popup pour
+Suite perso regroupant 4 modules dans une seule extension, avec un popup pour
 activer/désactiver chacun.
 
-| Module                | Site(s)            | Ce qu'il fait                                                                                                                |
-| --------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **PiP hotkey + mute** | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet |
-| **X — Tri par likes** | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                        |
-| **X — Auto-scroll**   | x.com              | Reprend ta position de lecture sur le fil                                                                                    |
+| Module                  | Site(s)            | Ce qu'il fait                                                                                                                |
+| ----------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **PiP hotkey + mute**   | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet |
+| **X — Tri par likes**   | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                        |
+| **X — Auto-scroll**     | x.com              | Reprend ta position de lecture sur le fil                                                                                    |
+| **X — Block en 1 clic** | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                           |
 
 ## Installer
 
@@ -38,12 +39,24 @@ trinitx-extensions/
 ├── popup.html / .css / .js
 └── modules/
     ├── x-auto-sort/main.js        # monde MAIN, intercepte fetch/XHR
-    └── x-auto-scroll/content.js   # monde ISOLATED, scroll position
+    ├── x-auto-scroll/content.js   # monde ISOLATED, scroll position
+    └── x-quick-block/content.js   # monde ISOLATED, block 1 clic (API interne X)
 ```
 
 Les modules « content script » (X) sont enregistrés/retirés dynamiquement via
 `chrome.scripting.registerContentScripts()` selon les toggles. Le module PiP est
 piloté par les commandes clavier + `chrome.debugger`.
+
+## Le module « Block en 1 clic »
+
+Ajoute une petite icône grise (cercle barré) à gauche du « … » de chaque tweet.
+Un clic bloque l'auteur **immédiatement** via l'API web interne de X (la même que
+le bouton « Bloquer » natif appelle, avec ta session ; ce n'est **pas** l'API
+développeur payante). Un toast « Bloqué @user — **Annuler** » s'affiche ~6 s pour
+revenir en arrière, et le tweet est grisé en attendant.
+
+L'icône reste discrète (gris au repos, à peine plus marquée au survol) et
+apparaît sur le fil, les pages de tweet et les fils de réponses.
 
 ## Le bandeau jaune de débogage (module PiP)
 

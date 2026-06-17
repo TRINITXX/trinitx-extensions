@@ -6,7 +6,12 @@
 // ---------------------------------------------------------------------------
 
 const TAG = "[TRINITX]";
-const DEFAULT_MODULES = { pip: true, xAutoSort: true, xAutoScroll: true };
+const DEFAULT_MODULES = {
+  pip: true,
+  xAutoSort: true,
+  xAutoScroll: true,
+  xQuickBlock: true,
+};
 
 // Modules a base de content scripts (enregistres seulement si actives)
 const CONTENT_MODULES = {
@@ -20,6 +25,13 @@ const CONTENT_MODULES = {
   xAutoScroll: {
     id: "x-auto-scroll",
     js: ["modules/x-auto-scroll/content.js"],
+    matches: ["*://x.com/*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
+  },
+  xQuickBlock: {
+    id: "x-quick-block",
+    js: ["modules/x-quick-block/content.js"],
     matches: ["*://x.com/*"],
     world: "ISOLATED",
     runAt: "document_idle",

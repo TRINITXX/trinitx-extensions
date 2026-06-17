@@ -1,5 +1,10 @@
 // Popup : pilote les toggles de modules + actions.
-const DEFAULT_MODULES = { pip: true, xAutoSort: true, xAutoScroll: true };
+const DEFAULT_MODULES = {
+  pip: true,
+  xAutoSort: true,
+  xAutoScroll: true,
+  xQuickBlock: true,
+};
 
 function showStatus(msg) {
   const el = document.getElementById("status");
