@@ -12,6 +12,7 @@ const DEFAULT_MODULES = {
   xAutoScroll: true,
   xQuickBlock: true,
   xHideSponsored: true,
+  xDimTheme: true,
   twitchNoSub: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
@@ -57,6 +58,14 @@ const CONTENT_MODULES = {
     matches: ["*://x.com/*"],
     world: "ISOLATED",
     runAt: "document_idle",
+  },
+  // Restaure le theme "Dim" : injecte du CSS au plus tot pour eviter le flash.
+  xDimTheme: {
+    id: "x-dim-theme",
+    js: ["modules/x-dim-theme/content.js"],
+    matches: ["*://x.com/*", "*://twitter.com/*"],
+    world: "ISOLATED",
+    runAt: "document_start",
   },
   youtubeCustomSpeed: {
     id: "youtube-custom-speed",

@@ -31,7 +31,7 @@ Use the **`/add-module` skill** (`.claude/skills/add-module/`) — it scaffolds 
 
 ## Conventions
 
-- **Double-load guard** at the top of every ISOLATED content script: `if (window.__xxxLoaded) return; window.__xxxLoaded = true;` — modules can be re-injected into an open tab.
+- **Double-load guard** at the top of every ISOLATED content script, **inside an IIFE** `(() => { if (window.__xxxLoaded) return; window.__xxxLoaded = true; … })();` — content scripts run at file scope, so a bare top-level `return` throws `Illegal return statement` and top-level `const`s clash on re-injection; the IIFE fixes both. Modules can be re-injected into an open tab.
 - **World scoping**: default to `ISOLATED`. Use `MAIN` only to intercept page globals (`fetch`/`XMLHttpRequest`/`window.Worker`) — e.g. `x-auto-sort`, `twitch-nosub/app.js`.
 - **Storage**: `chrome.storage.local` for persistent state (`modules`, `lastSeenTweetHref`, `reloadSkipPatterns`); `chrome.storage.session` for ephemeral state (`pipTabId`).
 - **Language**: user-facing UI strings are in French. Match the existing file's comment language (this repo's comments are in French) when editing.

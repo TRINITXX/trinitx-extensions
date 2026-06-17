@@ -1,6 +1,6 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 8 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 9 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
 | Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
@@ -10,6 +10,7 @@ extension, avec un popup pour activer/désactiver chacun.
 | **X — Auto-scroll**              | x.com              | Reprend ta position de lecture sur le fil                                                                                                    |
 | **X — Block en 1 clic**          | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                                           |
 | **X — Masquer les partenariats** | x.com              | Cache les tweets marqués « Partenariat rémunéré » (contenus sponsorisés) et la suite du thread quand l'auteur enchaîne des réponses          |
+| **X — Thème Dim**                | x.com, twitter.com | Restaure le thème bleu « Dim » par-dessus le mode sombre actuel (fond, textes, bordures, scrollbar)                                          |
 | **Twitch — VOD sub-only**        | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
 | **YouTube — Vitesse perso**      | youtube.com        | Boutons `−` / `+` dans le lecteur pour régler la vitesse au-delà de 2x (jusqu'à 16x) ; clic sur le chiffre = retour à 1x                     |
 | **YouTube — Pas de traduction**  | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
@@ -48,6 +49,7 @@ trinitx-extensions/
     ├── x-auto-scroll/content.js   # monde ISOLATED, scroll position
     ├── x-quick-block/content.js   # monde ISOLATED, block 1 clic (API interne X)
     ├── x-hide-sponsored/content.js  # monde ISOLATED, masque les partenariats rémunérés
+    ├── x-dim-theme/content.js     # monde ISOLATED, restaure le thème Dim (CSS)
     ├── youtube-custom-speed/content.js  # monde ISOLATED, widget vitesse perso
     ├── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)
     │   ├── restriction-remover.js # ISOLATED, retire les overlays sub-only

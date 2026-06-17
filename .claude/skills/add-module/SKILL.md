@@ -29,14 +29,17 @@ Decide the entry file name: `content.js` for ISOLATED DOM modules, `main.js` for
 
 ```js
 // <Title> — <one-line purpose>
-if (window.__<key>Loaded) return;
-window.__<key>Loaded = true;
+(() => {
+  // Guard: éviter une double exécution si le module est ré-injecté (toggle).
+  if (window.__<key>Loaded) return;
+  window.__<key>Loaded = true;
 
-const TAG = "[<Title>]";
-// ... module logic. Log with: console.log(TAG, "...")
+  const TAG = "[<Title>]";
+  // ... module logic. Log with: console.log(TAG, "...")
+})();
 ```
 
-Keep the double-load guard as the first two statements — modules can be re-injected into an already-open tab. (MAIN-world interceptors that wrap `fetch`/`Worker` follow the same guard pattern; see `modules/x-auto-sort/main.js`.)
+**Wrap the whole module in an IIFE `(() => { ... })()`** — content scripts run at file scope, so a top-level `return` for the guard throws `Illegal return statement`, and top-level `const`s would clash on re-injection. The IIFE both makes the guard `return` legal and scopes the declarations. Keep the guard as the first two statements inside it — modules can be re-injected into an already-open tab. (MAIN-world interceptors that wrap `fetch`/`Worker` follow the same wrapped-guard pattern; see `modules/x-auto-sort/main.js`.)
 
 ## Step 3 — Register in `background.js`
 

@@ -5,6 +5,7 @@ const DEFAULT_MODULES = {
   xAutoScroll: true,
   xQuickBlock: true,
   xHideSponsored: true,
+  xDimTheme: true,
   twitchNoSub: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
