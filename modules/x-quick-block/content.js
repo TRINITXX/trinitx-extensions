@@ -261,7 +261,14 @@
         justify-content: center;
         width: 32px;
         height: 32px;
-        margin: 0;
+        /* Marges verticales negatives : le bouton garde sa cible visuelle 32x32
+           mais ne compte que pour 20px dans la ligne d'en-tete (exactement la
+           technique du caret natif de X). Sans ca, sa hauteur de 32px force la
+           ligne (20px) a grandir -> +12px par tweet. Cumule sur les tweets
+           au-dessus du viewport, ce decalage desynchronise la restauration de
+           scroll "manuelle" de X au retour arriere : le fil saute de quelques
+           tweets. */
+        margin: -6px 0;
         padding: 0;
         border: none;
         background: transparent;
