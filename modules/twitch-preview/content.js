@@ -102,6 +102,23 @@
     );
   }
 
+  // Préchargement des thumbnails : lancé dès le survol d'un lien-chaîne (avant
+  // même l'affichage), pour que l'image soit déjà en cache navigateur au moment
+  // du show -> swap instantané, sans fond noir transitoire. Cache borné (les
+  // thumbnails sont légères et le navigateur garde sa propre copie en cache).
+  const thumbPreload = new Map(); // channel -> HTMLImageElement
+  function preloadThumb(channel) {
+    let img = thumbPreload.get(channel);
+    if (img) return img;
+    img = new Image();
+    img.src = thumbUrl(channel);
+    thumbPreload.set(channel, img);
+    if (thumbPreload.size > 40) {
+      thumbPreload.delete(thumbPreload.keys().next().value); // FIFO
+    }
+    return img;
+  }
+
   // --- Élément de preview (un seul iframe + thumbnail, réutilisés) ---------
   // Structure (de haut en bas) : box [ bandeau titre | zone vidéo ].
   // Dans la zone vidéo, calques (du bas vers le haut) : fond noir < iframe
@@ -197,6 +214,9 @@
     frame.setAttribute("scrolling", "no");
 
     // Thumbnail live (calque du dessus) : masque l'iframe jusqu'à la 1re frame.
+    // Fond noir : sert de placeholder neutre quand on efface l'image courante
+    // lors d'un changement de chaîne (cf. showPreview), pour ne jamais laisser
+    // apparaître la thumbnail de la chaîne précédente le temps du chargement.
     thumb = document.createElement("img");
     Object.assign(thumb.style, {
       position: "absolute",
@@ -205,6 +225,7 @@
       height: "100%",
       objectFit: "cover",
       display: "block",
+      background: "#000",
       transition: "opacity 0.35s ease",
     });
 
@@ -249,29 +270,56 @@
     titlePollTimer = null;
   }
 
-  // Le tooltip natif peut apparaître après la preview : on l'attend brièvement,
-  // puis on recale verticalement la box (le bandeau a pu grandir à 2 lignes).
-  function pollTitle(channel) {
+  // On sonde ~3 s après l'affichage de la preview. Deux rôles : (1) lire le
+  // titre du tooltip classique dès qu'il apparaît pour remplir notre bandeau ;
+  // (2) recaler la box dès qu'un tooltip SQUAD apparaît/grandit, pour ne pas le
+  // recouvrir (ce tooltip survient souvent après la preview et n'a pas de titre
+  // lisible via readTitleInfo, d'où le découplage du recalage et du titre).
+  function pollTitle(channel, ticks) {
     if (currentChannel !== channel) return;
+    ticks = (ticks || 0) + 1;
     const info = readTitleInfo();
-    if (info) {
-      setTitleBar(info);
-      if (boxVisible() && currentAnchor) {
-        positionBox(currentAnchor.getBoundingClientRect());
-      }
-      return;
+    if (info) setTitleBar(info);
+    if (boxVisible() && currentAnchor && squadTooltipRect()) {
+      positionBox(currentAnchor.getBoundingClientRect());
     }
-    titlePollTimer = setTimeout(() => pollTitle(channel), 120);
+    if (ticks < 25) {
+      titlePollTimer = setTimeout(() => pollTitle(channel, ticks), 120);
+    }
+  }
+
+  // Rect du tooltip natif de Twitch (sidebar) s'il est affiché, sinon null.
+  // Sert à caler la preview À CÔTÉ de ce tooltip plutôt que par-dessus, pour ne
+  // pas masquer l'encart « squad stream » (« En live avec … ») qu'il contient.
+  // On ne décale la preview QUE pour le tooltip « squad / guest star » (collab
+  // « En live avec … »), dont l'info n'est PAS reprise dans notre bandeau. Pour
+  // le tooltip de chaîne classique (juste un titre), on laisse la preview le
+  // recouvrir : son titre est déjà affiché au-dessus de la preview -> pas de
+  // doublon. (Classe spécifique : side-nav-guest-star-tooltip__body.)
+  function squadTooltipRect() {
+    const body = document.querySelector(".side-nav-guest-star-tooltip__body");
+    if (!body) return null;
+    // Conteneur « balloon » englobant tout le tooltip squad. .tw-balloon est la
+    // classe Twitch stable de ce conteneur.
+    const container = body.closest(".tw-balloon") || body.parentElement || body;
+    const r = container.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return null;
+    return r;
   }
 
   // Place la box à droite de l'élément (bascule à gauche si pas de place),
-  // centrée verticalement, en restant dans le viewport.
+  // centrée verticalement, en restant dans le viewport. Si un tooltip SQUAD est
+  // visible, on se cale au-delà de SES bords (et non de l'item) pour ne jamais
+  // le recouvrir. (Le tooltip classique, lui, est volontairement recouvert.)
   function positionBox(rect) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const boxH = box.offsetHeight || HEIGHT; // bandeau titre + vidéo
-    let left = rect.right + GAP;
-    if (left + WIDTH + MARGIN > vw) left = rect.left - GAP - WIDTH;
+    const squad = squadTooltipRect();
+    const rightEdge = squad ? Math.max(rect.right, squad.right) : rect.right;
+    const leftEdge = squad ? Math.min(rect.left, squad.left) : rect.left;
+    let left = rightEdge + GAP;
+    if (left + WIDTH + MARGIN > vw) left = leftEdge - GAP - WIDTH;
     left = Math.max(MARGIN, Math.min(left, vw - WIDTH - MARGIN));
     let top = rect.top + rect.height / 2 - boxH / 2;
     top = Math.max(MARGIN, Math.min(top, vh - boxH - MARGIN));
@@ -299,6 +347,7 @@
 
   function showPreview(channel, anchorEl) {
     ensureBox();
+    const switching = boxVisible(); // box déjà à l'écran -> simple changement de chaîne
     currentChannel = channel;
     sawPlaying = false;
     clearRevealTimers();
@@ -310,13 +359,23 @@
       meta: "",
     });
     pollTitle(channel);
-    // État initial : thumbnail visible, vidéo masquée dessous.
     thumb.style.opacity = "1";
+    // Thumbnail préchargée (dès le survol) ? Si elle est déjà en cache, on
+    // garde l'image courante affichée jusqu'au swap, qui sera instantané ->
+    // aucun fond noir, aucune chaîne précédente visible. Sinon, on efface
+    // l'image courante : son fond noir sert de placeholder neutre le temps du
+    // chargement (sans quoi l'<img> garderait la chaîne PRÉCÉDENTE affichée).
+    const pre = preloadThumb(channel);
+    const ready = pre.complete && pre.naturalWidth > 0;
+    if (!ready) thumb.removeAttribute("src");
+    // Box déjà visible : on la recale tout de suite sur la nouvelle ancre sans
+    // attendre le onload de la thumbnail.
+    if (switching) placeAndShow(anchorEl);
     // 1) la vidéo charge derrière, révélée seulement quand elle a des frames
     frame.src = playerUrl(channel);
     // 2) ultime filet de sécurité
     maxRevealTimer = setTimeout(revealVideo, MAX_REVEAL);
-    // 3) la box n'apparaît qu'une fois la thumbnail peinte -> aucun écran noir
+    // 3) (1re ouverture) la box n'apparaît qu'une fois la thumbnail peinte
     thumb.onload = () => {
       if (currentChannel === channel) placeAndShow(anchorEl);
     };
@@ -419,6 +478,7 @@
       if (channel) {
         clearHideTimer();
         currentAnchor = a; // ancre fraîche (résiste aux re-render de Twitch)
+        preloadThumb(channel); // précharge dès le survol -> swap sans fond noir
         if (channel === currentChannel || channel === pendingChannel) return;
         pendingChannel = channel;
         clearShowTimer();
