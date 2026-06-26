@@ -103,16 +103,22 @@
   }
 
   // --- Élément de preview (un seul iframe + thumbnail, réutilisés) ---------
-  // Calques (du bas vers le haut) : fond noir (box) < iframe vidéo < thumbnail.
-  // La thumbnail (opaque) masque l'iframe pendant son chargement (blanc puis
-  // noir) ; quand la vidéo a vraiment des frames, la thumbnail disparaît en
-  // fondu et révèle la vidéo en dessous -> jamais d'écran blanc ni noir.
+  // Structure (de haut en bas) : box [ bandeau titre | zone vidéo ].
+  // Dans la zone vidéo, calques (du bas vers le haut) : fond noir < iframe
+  // vidéo < thumbnail. La thumbnail (opaque) masque l'iframe pendant son
+  // chargement (blanc puis noir) ; quand la vidéo a vraiment des frames, la
+  // thumbnail disparaît en fondu et révèle la vidéo -> jamais d'écran blanc ni
+  // noir. Le bandeau titre reprend le titre du tooltip natif de Twitch.
   let box = null; // conteneur flottant
+  let titleBar = null; // bandeau titre (au-dessus de la vidéo)
+  let titleText = null; // titre du stream (ligne principale)
+  let metaText = null; // chaîne · jeu · statut (ligne secondaire)
   let frame = null; // iframe player Twitch (vidéo live), en-dessous
   let thumb = null; // <img> thumbnail live, au-dessus (placeholder instantané)
   let currentChannel = null; // chaîne actuellement chargée
   let maxRevealTimer = null; // filet de sécurité
   let graceTimer = null; // délai après le 1er "Playing" sans frames
+  let titlePollTimer = null; // attente de l'apparition du tooltip natif
   let sawPlaying = false; // a-t-on déjà reçu un état "Playing" ?
 
   function ensureBox() {
@@ -122,16 +128,59 @@
     Object.assign(box.style, {
       position: "fixed",
       width: WIDTH + "px",
-      height: HEIGHT + "px",
       top: "0",
       left: "0",
       zIndex: "2147483647",
       borderRadius: "8px",
       overflow: "hidden",
       boxShadow: "0 8px 28px rgba(0, 0, 0, 0.6)",
-      background: "#000",
+      background: "#18181b",
       pointerEvents: "none", // non interactive -> jamais de "hover perdu"
       display: "none",
+      fontFamily:
+        "Inter, Roobert, 'Helvetica Neue', Helvetica, Arial, sans-serif",
+    });
+
+    // Bandeau titre (au-dessus de la vidéo) : reprend le titre du stream lu
+    // dans le tooltip natif de Twitch (sidebar), avec le nom de chaîne en
+    // placeholder le temps que ce tooltip apparaisse.
+    titleBar = document.createElement("div");
+    Object.assign(titleBar.style, {
+      padding: "9px 12px 10px",
+      background: "#18181b",
+      color: "#efeff1",
+      boxSizing: "border-box",
+    });
+    titleText = document.createElement("div");
+    Object.assign(titleText.style, {
+      fontSize: "13px",
+      fontWeight: "600",
+      lineHeight: "1.3",
+      display: "-webkit-box",
+      WebkitBoxOrient: "vertical",
+      WebkitLineClamp: "2", // titre tronqué à 2 lignes max
+      overflow: "hidden",
+    });
+    metaText = document.createElement("div");
+    Object.assign(metaText.style, {
+      fontSize: "12px",
+      color: "#adadb8",
+      marginTop: "3px",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    });
+    titleBar.appendChild(titleText);
+    titleBar.appendChild(metaText);
+
+    // Zone vidéo (hauteur fixe 16:9) : conteneur des calques frame + thumb.
+    const videoWrap = document.createElement("div");
+    Object.assign(videoWrap.style, {
+      position: "relative",
+      width: "100%",
+      height: HEIGHT + "px",
+      overflow: "hidden",
+      background: "#000",
     });
 
     // Vidéo live (calque du dessous), opaque mais masquée par la thumbnail.
@@ -159,10 +208,60 @@
       transition: "opacity 0.35s ease",
     });
 
-    box.appendChild(frame);
-    box.appendChild(thumb);
+    videoWrap.appendChild(frame);
+    videoWrap.appendChild(thumb);
+    box.appendChild(titleBar);
+    box.appendChild(videoWrap);
     document.body.appendChild(box);
     return box;
+  }
+
+  // Lit le titre du stream dans le tooltip natif de Twitch (sidebar). Classe
+  // BEM stable (contrairement aux hash styled-components). Renvoie null si
+  // absent (ex. hors sidebar : grille directory, recherche...).
+  function readTitleInfo() {
+    const body = document.querySelector(
+      ".online-side-nav-channel-tooltip__body",
+    );
+    if (!body) return null;
+    const ps = body.querySelectorAll("p");
+    const head = ps[0] ? ps[0].textContent.trim() : ""; // "Chaîne · Jeu"
+    const title = ps[1] ? ps[1].textContent.trim() : ""; // titre du stream
+    const statusEl = body.querySelector(
+      ".online-side-nav-channel-tooltip__text",
+    );
+    const status = statusEl ? statusEl.textContent.trim() : "";
+    const main = title || head;
+    if (!main) return null;
+    const metaParts = (title ? [head] : []).concat(status ? [status] : []);
+    return { main, meta: metaParts.join(" · ") };
+  }
+
+  function setTitleBar(info) {
+    if (!titleText) return;
+    titleText.textContent = info.main;
+    metaText.textContent = info.meta;
+    metaText.style.display = info.meta ? "block" : "none";
+  }
+
+  function clearTitlePoll() {
+    clearTimeout(titlePollTimer);
+    titlePollTimer = null;
+  }
+
+  // Le tooltip natif peut apparaître après la preview : on l'attend brièvement,
+  // puis on recale verticalement la box (le bandeau a pu grandir à 2 lignes).
+  function pollTitle(channel) {
+    if (currentChannel !== channel) return;
+    const info = readTitleInfo();
+    if (info) {
+      setTitleBar(info);
+      if (boxVisible() && currentAnchor) {
+        positionBox(currentAnchor.getBoundingClientRect());
+      }
+      return;
+    }
+    titlePollTimer = setTimeout(() => pollTitle(channel), 120);
   }
 
   // Place la box à droite de l'élément (bascule à gauche si pas de place),
@@ -170,11 +269,12 @@
   function positionBox(rect) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    const boxH = box.offsetHeight || HEIGHT; // bandeau titre + vidéo
     let left = rect.right + GAP;
     if (left + WIDTH + MARGIN > vw) left = rect.left - GAP - WIDTH;
     left = Math.max(MARGIN, Math.min(left, vw - WIDTH - MARGIN));
-    let top = rect.top + rect.height / 2 - HEIGHT / 2;
-    top = Math.max(MARGIN, Math.min(top, vh - HEIGHT - MARGIN));
+    let top = rect.top + rect.height / 2 - boxH / 2;
+    top = Math.max(MARGIN, Math.min(top, vh - boxH - MARGIN));
     box.style.left = Math.round(left) + "px";
     box.style.top = Math.round(top) + "px";
   }
@@ -193,8 +293,8 @@
   }
 
   function placeAndShow(anchorEl) {
+    box.style.display = "block"; // visible d'abord -> offsetHeight mesurable
     positionBox(anchorEl.getBoundingClientRect());
-    box.style.display = "block";
   }
 
   function showPreview(channel, anchorEl) {
@@ -202,6 +302,14 @@
     currentChannel = channel;
     sawPlaying = false;
     clearRevealTimers();
+    clearTitlePoll();
+    // Titre : placeholder (nom de chaîne) tant que le tooltip natif n'est pas
+    // là, puis remplacé par le vrai titre dès qu'il apparaît.
+    setTitleBar({
+      main: channel.charAt(0).toUpperCase() + channel.slice(1),
+      meta: "",
+    });
+    pollTitle(channel);
     // État initial : thumbnail visible, vidéo masquée dessous.
     thumb.style.opacity = "1";
     // 1) la vidéo charge derrière, révélée seulement quand elle a des frames
@@ -226,6 +334,7 @@
     currentChannel = null;
     sawPlaying = false;
     clearRevealTimers();
+    clearTitlePoll();
     thumb.onload = null;
     thumb.onerror = null;
     frame.src = "about:blank"; // coupe le flux -> rien ne tourne en fond

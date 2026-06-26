@@ -14,6 +14,10 @@
   // --- Save tuning ---
   const SAVE_DEBOUNCE_MS = 1500; // persist 1.5s after the user stops scrolling
   const MIN_ENGAGE_SCROLL = 400; // px scrolled before we start saving (anti-clobber)
+  // Hold off the first save for 5 min after landing on x.com so the previous
+  // session's saved position (served by the scroll-to-last-seen button) stays
+  // reachable long enough to actually jump back to it before we overwrite it.
+  const INITIAL_SAVE_DELAY_MS = 5 * 60 * 1000;
 
   // --- Scroll-to-last-seen tuning ---
   const AUTOSCROLL_MAX_MS = 30000; // hard wall-clock cap (~30s)
@@ -31,6 +35,7 @@
   let hasScrolledSinceLoad = false;
   let scrollButton = null;
   let saveDebounceTimer = null;
+  const pageLoadTime = Date.now(); // when this x.com tab was loaded (for INITIAL_SAVE_DELAY_MS)
 
   function log(...args) {
     console.log(LOG_PREFIX, ...args);
@@ -293,7 +298,8 @@
       !isOnForYouTab() &&
       hasScrolledSinceLoad &&
       !trackingPaused &&
-      !isAutoScrolling
+      !isAutoScrolling &&
+      Date.now() - pageLoadTime >= INITIAL_SAVE_DELAY_MS
     );
   }
 

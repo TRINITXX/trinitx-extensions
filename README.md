@@ -1,6 +1,6 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 11 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 13 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
 | Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
@@ -14,8 +14,10 @@ extension, avec un popup pour activer/désactiver chacun.
 | **Twitch — VOD sub-only**        | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
 | **Twitch — Anti-pub (vaft)**     | twitch.tv          | Bloque les pubs des lives (variante _vaft_ de [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions))                           |
 | **Twitch — Preview au survol**   | twitch.tv          | Preview vidéo en direct de la chaîne au survol d'un streamer dans les listes (sidebar, accueil, catégories, recherche) ; muette, flottante   |
+| **Twitch — Limiteur de volume**  | twitch.tv          | Plafonne les pics de volume (cris) sans toucher au son normal ; curseur de seuil en dB (0 = aucune limite), marche aussi en PiP              |
 | **YouTube — Vitesse perso**      | youtube.com        | Boutons `−` / `+` dans le lecteur pour régler la vitesse au-delà de 2x (jusqu'à 16x) ; clic sur le chiffre = retour à 1x                     |
 | **YouTube — Pas de traduction**  | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
+| **YouTube — Meilleure qualité**  | youtube.com        | Force automatiquement la plus haute résolution disponible (1080p, 1440p, 4K…) sur chaque vidéo, au lieu de la qualité « Auto »               |
 | **Recharger les onglets**        | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)                           |
 
 ## Installer
@@ -53,6 +55,7 @@ trinitx-extensions/
     ├── x-hide-sponsored/content.js  # monde ISOLATED, masque les partenariats rémunérés
     ├── x-dim-theme/content.js     # monde ISOLATED, restaure le thème Dim (CSS)
     ├── youtube-custom-speed/content.js  # monde ISOLATED, widget vitesse perso
+    ├── youtube-best-quality/main.js     # monde MAIN, force la meilleure qualité (API du lecteur)
     ├── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)
     │   ├── restriction-remover.js # ISOLATED, retire les overlays sub-only
     │   ├── twitchnosub.js         # ISOLATED, injecte app.js dans le monde MAIN
@@ -61,6 +64,7 @@ trinitx-extensions/
     │   └── LICENSE                # Apache-2.0 (attribution)
     ├── twitch-ads-vaft/main.js    # MAIN, anti-pub live (pixeltris/TwitchAdSolutions, vaft)
     ├── twitch-preview/content.js  # ISOLATED, preview video live au survol (iframe player)
+    ├── twitch-volume-limiter/content.js  # ISOLATED, limiteur de volume (Web Audio, anti-cri)
     └── youtube-no-translation/   # vendoré depuis YouG-o/... (AGPL-3.0)
         ├── dist/content/content.js     # ISOLATED, orchestre tout
         ├── dist/content/scripts/*.js   # MAIN (web_accessible_resources)
@@ -152,6 +156,31 @@ pour réécrire la playlist `.m3u8` (segments de pub retirés, flux de secours).
   l'efficacité peut varier. Mettre à jour = re-télécharger le `.user.js` amont
   (`vaft.user.js`) et remplacer `modules/twitch-ads-vaft/main.js`.
 
+## Le module « Twitch — Limiteur de volume »
+
+Insère un limiteur audio (`DynamicsCompressorNode` de la Web Audio API, réglé en
+mode limiteur : genou dur, ratio 20:1, attaque 3 ms) entre le `<video>` du player
+et la sortie, pour écrêter les pics de volume (cris, jingles) **sans toucher au
+son normal**.
+
+- **Curseur de seuil (en dB)** dans le popup, de `-40 dB` à `0 dB`. `0 dB` =
+  aucune limite (son brut) ; plus tu descends, plus tôt les pics sont matés.
+  Réglage **en temps réel** (le content script lit `chrome.storage.onChanged`),
+  sans recharger. La valeur est mémorisée dans `chrome.storage.local` (clé
+  `twitchLimiterThreshold`).
+- **Genou dur** (`knee = 0`) : sous le seuil, gain inchangé → la voix normale
+  passe intacte. Pas de makeup gain (le volume n'est jamais remonté).
+- **Indépendant du volume Windows** : le limiteur agit sur le signal numérique,
+  _avant_ le volume système. Le volume du player Twitch, lui, est _en amont_ du
+  limiteur et influence donc le réglage efficace.
+- **PiP** : fonctionne en Picture-in-Picture (c'est le même élément `<video>`,
+  l'audio reste routé par la chaîne Web Audio).
+- **S'arme au 1er geste** : l'AudioContext démarre « suspended » (autoplay
+  policy) et se débloque au premier clic/touche sur la page. Avant ça, le son
+  sort normalement, non filtré — donc jamais de coupure.
+- **ON par défaut**, mais sans effet tant que le curseur est à `0 dB`. Comme tout
+  module, le passer **OFF** ne prend effet qu'au rechargement de l'onglet.
+
 ## Le module « YouTube — Pas de traduction »
 
 Intègre [**YouTube-No-Translation**](https://github.com/YouG-o/YouTube-No-Translation)
@@ -178,12 +207,15 @@ récupérer les libellés non traduits.
   renseigne une clé **YouTube Data API v3** (optionnelle, sinon le fallback
   InnerTube same-origin suffit). Elle nécessite `_locales/` + `default_locale`
   (ajoutés au manifest) pour `chrome.i18n`.
-- **Modifs locales** : seuls deux changements par rapport au build amont — les
+- **Modifs locales** : trois changements par rapport au build amont — les
   chemins `getURL("dist/…")` re-préfixés en
-  `getURL("modules/youtube-no-translation/dist/…")`, et le toast de don
-  (`askForSupport`) désactivé par défaut. Pour soutenir l'auteur :
-  [ko-fi.com/yougo](https://ko-fi.com/yougo).
-- **Mise à jour** : re-télécharger la release Chromium, ré-appliquer ces deux
+  `getURL("modules/youtube-no-translation/dist/…")`, le toast de don
+  (`askForSupport`) désactivé par défaut (pour soutenir l'auteur :
+  [ko-fi.com/yougo](https://ko-fi.com/yougo)), et dans `dist/content/content.js`
+  le `waitForElement` qui observe désormais `document.body || document.documentElement`
+  (au `document_start` le `<body>` est encore `null` → `MutationObserver.observe`
+  levait `parameter 1 is not of type 'Node'`).
+- **Mise à jour** : re-télécharger la release Chromium, ré-appliquer ces trois
   patchs (le service worker `dist/background` et `dist/_locales` redondants sont
   retirés ; `_locales/` racine sert à l'i18n).
 

@@ -13,6 +13,17 @@
         <h1>TRINITX</h1>
         <p>Extensions perso</p>
       </div>
+      <div class="master" title="Tout activer / désactiver">
+        <span class="master-label">Tout</span>
+        <label class="switch">
+          <input
+            type="checkbox"
+            id="master-toggle"
+            aria-label="Activer ou désactiver tous les modules"
+          />
+          <span class="slider"></span>
+        </label>
+      </div>
     </header>
 
     <main id="modules">
@@ -227,6 +238,37 @@
         </div>
       </section>
 
+      <!-- Twitch — Limiteur de volume -->
+      <section class="module" data-module="twitchVolumeLimiter">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>Twitch — Limiteur de volume</h2>
+            <p>
+              Plafonne les pics de volume (cris) sans toucher au son normal.
+              Descends le seuil jusqu'à ce que les cris ne dépassent plus.
+            </p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="twitchVolumeLimiter" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="module-extra">
+          <div class="range-row">
+            <label for="limiter-threshold">Seuil</label>
+            <input
+              type="range"
+              id="limiter-threshold"
+              min="-40"
+              max="0"
+              step="1"
+              value="0"
+            />
+            <output id="limiter-threshold-val">aucune limite</output>
+          </div>
+        </div>
+      </section>
+
       <!-- YouTube — Vitesse personnalisée -->
       <section class="module" data-module="youtubeCustomSpeed">
         <div class="module-row">
@@ -240,6 +282,23 @@
           </div>
           <label class="switch">
             <input type="checkbox" data-module="youtubeCustomSpeed" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- YouTube — Meilleure qualité -->
+      <section class="module" data-module="youtubeBestQuality">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>YouTube — Meilleure qualité</h2>
+            <p>
+              Force automatiquement la plus haute résolution disponible (1080p,
+              1440p, 4K…) sur chaque vidéo, au lieu de la qualité « Auto ».
+            </p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="youtubeBestQuality" />
             <span class="slider"></span>
           </label>
         </div>

@@ -506,7 +506,7 @@
         observer.disconnect();
         reject(new Error("Timeout waiting for element: " + selector));
       }, timeout);
-      observer.observe(document.body, {
+      observer.observe(document.body || document.documentElement, {
         childList: true,
         subtree: true,
       });

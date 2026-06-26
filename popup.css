@@ -70,6 +70,27 @@ body {
   font-size: 11px;
   color: var(--text-dim);
 }
+/* Interrupteur maitre (header, pousse a droite) */
+.master {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.master-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+}
+
+/* Maitre OFF : grise et neutralise les modules (sauf "Recharger les onglets") */
+body.master-off main .module:not([data-module="reloadTabs"]) {
+  opacity: 0.45;
+}
+body.master-off main .module:not([data-module="reloadTabs"]) .switch {
+  pointer-events: none;
+}
 
 /* Modules */
 main {
@@ -137,6 +158,33 @@ main {
 }
 .action:hover {
   text-decoration: underline;
+}
+
+/* Curseur de réglage (ex : seuil du limiteur Twitch) */
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+}
+.range-row label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.range-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.range-row output {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text);
+  flex-shrink: 0;
+  min-width: 92px;
+  text-align: right;
 }
 
 /* Bouton d'action (Recharger) */

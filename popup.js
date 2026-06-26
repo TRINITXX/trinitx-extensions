@@ -9,8 +9,10 @@ const DEFAULT_MODULES = {
   twitchNoSub: true,
   twitchAdsVaft: true,
   twitchPreview: true,
+  twitchVolumeLimiter: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
+  youtubeBestQuality: true,
 };
 
 function showStatus(msg) {
@@ -42,6 +44,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   const modules = await getModules();
   reflect(modules);
 
+  // --- Interrupteur maitre (tout activer / desactiver) -----------------------
+  // Surclasse tous les modules sans toucher a leurs etats individuels :
+  // au rallumage, chaque module retrouve son reglage.
+  const masterCb = document.getElementById("master-toggle");
+  const { masterEnabled } = await chrome.storage.local.get("masterEnabled");
+  const masterOn = masterEnabled !== false; // defaut : true
+  masterCb.checked = masterOn;
+  document.body.classList.toggle("master-off", !masterOn);
+  masterCb.addEventListener("change", async () => {
+    await chrome.storage.local.set({ masterEnabled: masterCb.checked });
+    document.body.classList.toggle("master-off", !masterCb.checked);
+    showStatus(masterCb.checked ? "Tout réactivé" : "Tout désactivé");
+  });
+
   // Toggles
   document
     .querySelectorAll('input[type="checkbox"][data-module]')
@@ -54,6 +70,34 @@ document.addEventListener("DOMContentLoaded", async () => {
         showStatus(cb.checked ? "Module activé" : "Module désactivé");
       });
     });
+
+  // --- Curseur du limiteur Twitch (seuil en dB) ------------------------------
+  // Le content script lit la valeur via storage.onChanged et l'applique en live.
+  const limiterSlider = document.getElementById("limiter-threshold");
+  const limiterOut = document.getElementById("limiter-threshold-val");
+  const LIMITER_KEY = "twitchLimiterThreshold";
+
+  const renderLimiter = (v) => {
+    limiterOut.textContent = v >= 0 ? "aucune limite" : `${v} dB`;
+  };
+
+  const { [LIMITER_KEY]: storedThreshold } =
+    await chrome.storage.local.get(LIMITER_KEY);
+  const initialThreshold =
+    typeof storedThreshold === "number" ? storedThreshold : 0;
+  limiterSlider.value = String(initialThreshold);
+  renderLimiter(initialThreshold);
+
+  let limiterTimer;
+  limiterSlider.addEventListener("input", () => {
+    const v = Number(limiterSlider.value);
+    renderLimiter(v);
+    clearTimeout(limiterTimer); // debounce : évite d'écrire à chaque pixel
+    limiterTimer = setTimeout(
+      () => chrome.storage.local.set({ [LIMITER_KEY]: v }),
+      120,
+    );
+  });
 
   // --- Recharger les onglets -------------------------------------------------
   const reloadBtn = document.getElementById("reload-tabs-btn");

@@ -18,8 +18,12 @@ const DEFAULT_MODULES = {
   twitchAdsVaft: true,
   // Preview video live de la chaine au survol : ON par defaut.
   twitchPreview: true,
+  // Limiteur de volume audio (anti-cri) sur Twitch : ON par defaut.
+  twitchVolumeLimiter: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
+  // Force la meilleure qualité dispo sur chaque vidéo YouTube : ON par defaut.
+  youtubeBestQuality: true,
 };
 
 // Modules a base de content scripts (enregistres seulement si actives)
@@ -62,6 +66,15 @@ const CONTENT_MODULES = {
     world: "ISOLATED",
     runAt: "document_idle",
   },
+  // Limiteur de volume (DynamicsCompressorNode en mode limiteur). ISOLATED,
+  // document_idle : branche une chaine Web Audio sur le <video> du player.
+  twitchVolumeLimiter: {
+    id: "twitch-volume-limiter",
+    js: ["modules/twitch-volume-limiter/content.js"],
+    matches: ["*://*.twitch.tv/*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
+  },
   xAutoScroll: {
     id: "x-auto-scroll",
     js: ["modules/x-auto-scroll/content.js"],
@@ -98,6 +111,15 @@ const CONTENT_MODULES = {
     world: "ISOLATED",
     runAt: "document_idle",
   },
+  // Force la plus haute qualité dispo. Monde MAIN : appelle l'API interne du
+  // lecteur (#movie_player.setPlaybackQualityRange), invisible en ISOLATED.
+  youtubeBestQuality: {
+    id: "youtube-best-quality",
+    js: ["modules/youtube-best-quality/main.js"],
+    matches: ["*://www.youtube.com/*"],
+    world: "MAIN",
+    runAt: "document_idle",
+  },
   // Vendore depuis YouG-o/YouTube-No-Translation (AGPL-3.0). Le content script
   // ISOLATED injecte lui-meme ses scripts monde MAIN (web_accessible_resources).
   // document_start + allFrames comme l'upstream -> recharger l'onglet apres ON.
@@ -119,9 +141,16 @@ async function getModules() {
   return { ...DEFAULT_MODULES, ...(modules || {}) };
 }
 
+// Interrupteur maitre : surclasse tous les modules (defaut ON).
+async function isMasterEnabled() {
+  const { masterEnabled } = await chrome.storage.local.get("masterEnabled");
+  return masterEnabled !== false;
+}
+
 // --- Synchronise les content scripts enregistres avec les toggles ----------
 async function syncRegistrations() {
   const mods = await getModules();
+  const master = await isMasterEnabled();
   let existing = [];
   try {
     existing = await chrome.scripting.getRegisteredContentScripts();
@@ -130,7 +159,7 @@ async function syncRegistrations() {
 
   for (const key of Object.keys(CONTENT_MODULES)) {
     const def = CONTENT_MODULES[key];
-    const shouldBe = !!mods[key];
+    const shouldBe = master && !!mods[key];
     const isReg = existingIds.has(def.id);
     try {
       if (shouldBe && !isReg) {
@@ -483,6 +512,10 @@ async function reloadWindowTabs() {
 // Wiring
 // ===========================================================================
 chrome.commands.onCommand.addListener(async (command) => {
+  if (!(await isMasterEnabled())) {
+    console.log(TAG, "interrupteur maitre OFF — commande ignoree");
+    return;
+  }
   const mods = await getModules();
   if (!mods.pip) {
     console.log(TAG, "module PiP desactive — commande ignoree");
@@ -507,18 +540,36 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 chrome.storage.onChanged.addListener(async (changes, area) => {
-  if (area !== "local" || !changes.modules) return;
-  const oldV = changes.modules.oldValue || {};
-  const newV = changes.modules.newValue || {};
+  if (area !== "local" || (!changes.modules && !changes.masterEnabled)) return;
   await syncRegistrations();
+
+  // Plus rien a injecter si l'interrupteur maitre est OFF.
+  if (!(await isMasterEnabled())) return;
+
+  // Maitre vient de repasser ON -> (re)injecter tous les modules actifs.
+  if (changes.masterEnabled && changes.masterEnabled.newValue) {
+    const mods = await getModules();
+    for (const key of Object.keys(CONTENT_MODULES)) {
+      if (mods[key]) injectIntoOpenTabs(key);
+    }
+    return;
+  }
+
+  // Sinon : un module individuel a pu passer OFF -> ON.
+  const oldV = (changes.modules && changes.modules.oldValue) || {};
+  const newV = (changes.modules && changes.modules.newValue) || {};
   for (const key of Object.keys(CONTENT_MODULES)) {
     if (newV[key] && !oldV[key]) injectIntoOpenTabs(key);
   }
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const { modules } = await chrome.storage.local.get("modules");
-  if (!modules) await chrome.storage.local.set({ modules: DEFAULT_MODULES });
+  const stored = await chrome.storage.local.get(["modules", "masterEnabled"]);
+  if (!stored.modules)
+    await chrome.storage.local.set({ modules: DEFAULT_MODULES });
+  if (stored.masterEnabled === undefined) {
+    await chrome.storage.local.set({ masterEnabled: true });
+  }
   await syncRegistrations();
 });
 
