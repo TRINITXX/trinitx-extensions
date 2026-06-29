@@ -104,11 +104,14 @@ const CONTENT_MODULES = {
     world: "ISOLATED",
     runAt: "document_start",
   },
+  // Vitesse de lecture personnalisee. Monde MAIN : YouTube a decouple
+  // l'element <video> de la lecture reelle, seul #movie_player.setPlaybackRate()
+  // change vraiment la vitesse (invisible en ISOLATED). Persiste via localStorage.
   youtubeCustomSpeed: {
     id: "youtube-custom-speed",
     js: ["modules/youtube-custom-speed/content.js"],
     matches: ["*://www.youtube.com/*"],
-    world: "ISOLATED",
+    world: "MAIN",
     runAt: "document_idle",
   },
   // Force la plus haute qualité dispo. Monde MAIN : appelle l'API interne du

@@ -17,6 +17,10 @@
   // Hold off the first save for 5 min after landing on x.com so the previous
   // session's saved position (served by the scroll-to-last-seen button) stays
   // reachable long enough to actually jump back to it before we overwrite it.
+  // Exception: once we've actually jumped back to it (the scroll-to-last-seen
+  // button found the tweet), the saved position has served its purpose, so we
+  // start tracking immediately instead of waiting out the delay — see
+  // `jumpedToLastSeen`.
   const INITIAL_SAVE_DELAY_MS = 5 * 60 * 1000;
 
   // --- Scroll-to-last-seen tuning ---
@@ -33,6 +37,10 @@
   let isAutoScrolling = false;
   let trackingPaused = false;
   let hasScrolledSinceLoad = false;
+  // Set once the scroll-to-last-seen button actually found & jumped to the saved
+  // tweet: the saved position has served its purpose, so the INITIAL_SAVE_DELAY_MS
+  // grace window no longer needs to be honoured (we can start tracking right away).
+  let jumpedToLastSeen = false;
   let scrollButton = null;
   let saveDebounceTimer = null;
   const pageLoadTime = Date.now(); // when this x.com tab was loaded (for INITIAL_SAVE_DELAY_MS)
@@ -299,7 +307,7 @@
       hasScrolledSinceLoad &&
       !trackingPaused &&
       !isAutoScrolling &&
-      Date.now() - pageLoadTime >= INITIAL_SAVE_DELAY_MS
+      (jumpedToLastSeen || Date.now() - pageLoadTime >= INITIAL_SAVE_DELAY_MS)
     );
   }
 
@@ -509,6 +517,11 @@
 
       log("found last seen tweet");
       showToast("Position found!");
+
+      // We've reached the saved position: it has served its purpose, so lift the
+      // initial 5-min grace window and let tracking start as soon as the user
+      // scrolls again (even if less than 5 min elapsed since landing).
+      jumpedToLastSeen = true;
 
       // Keep the saved key; resume tracking shortly so new positions save.
       setTimeout(() => {

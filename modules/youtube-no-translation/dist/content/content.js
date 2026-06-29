@@ -6329,12 +6329,20 @@
           });
       }
       if (currentSettings?.descriptionTranslation && !isMobileSite()) {
-        waitForElement("ytd-video-renderer").then(() => {
-          processChannelVideoDescriptions();
-        });
-        waitForElement("yt-description-preview-view-model").then(() => {
-          refreshChannelShortDescription();
-        });
+        // Patch local : ces elements peuvent ne jamais apparaitre sur une page
+        // de chaine (onglet sans videos) -> waitForElement rejette au timeout.
+        // On avale l'erreur pour eviter un "Uncaught (in promise)" (l'upstream
+        // a oublie le .catch ici, contrairement a l'appel voisin ci-dessus).
+        waitForElement("ytd-video-renderer")
+          .then(() => {
+            processChannelVideoDescriptions();
+          })
+          .catch(() => {});
+        waitForElement("yt-description-preview-view-model")
+          .then(() => {
+            refreshChannelShortDescription();
+          })
+          .catch(() => {});
       }
       return;
     }

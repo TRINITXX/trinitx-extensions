@@ -1,27 +1,34 @@
 (() => {
-  // YouTube Custom Speed — vitesse de lecture personnalisee (au-dela de 2x).
-  // Reimplemente en vanilla l'idee de nizioleque/youtube-custom-speed :
-  // un widget "−  1.5x  +" injecte dans la barre du lecteur. Le chiffre central
-  // reinitialise a 1x. La vitesse est persistee et reimposee a chaque video.
+  // YouTube Custom Speed — vitesse de lecture personnalisee via un widget
+  // "−  1.5x  +" injecte dans la barre du lecteur. Le chiffre central
+  // reinitialise a 1x. La vitesse vaut pour la video courante uniquement : a
+  // chaque changement de video on repart a 1x (pas de persistance).
   //
-  // Guard : evite une double execution si le module est reinjecte (toggle /
+  // Monde MAIN (comme youtube-best-quality) : depuis ~2025 YouTube a decouple
+  // l'element <video> de la lecture reelle. Ecrire `video.playbackRate` change
+  // bien la propriete mais le lecteur reimpose sa propre vitesse a la lecture
+  // (la video reste a 1x). Seul l'API interne `#movie_player.setPlaybackRate()`
+  // change vraiment la vitesse — et cette methode n'est visible que dans le
+  // monde MAIN. Elle plafonne a 2x (getAvailablePlaybackRates() = [0.25 .. 2]).
+  //
+  // Garde : evite une double execution si le module est reinjecte (toggle /
   // rechargement) alors qu'un onglet YouTube est deja ouvert.
   if (window.__youtubeCustomSpeedLoaded) return;
   window.__youtubeCustomSpeedLoaded = true;
 
   const TAG = "[YouTubeCustomSpeed]";
-  const STORAGE_KEY = "ytCustomSpeed";
 
-  const STEP = 0.25; // pas fin, en dessous de 3x (et grille d'alignement)
+  const STEP = 0.25; // pas fin
   const MIN = 0.25; // plancher
-  const MAX = 16; // plafond accepte par Chrome
+  const MAX = 2; // plafond impose par l'API du lecteur (setPlaybackRate clampe a 2)
 
-  // Paliers parcourus par les boutons −/+ : pas de 0.25 sous 3x, puis on saute
-  // 3 → 4 → 8 → 16.
+  // Paliers parcourus par les boutons −/+ : 0.25 .. 2, alignes sur
+  // getAvailablePlaybackRates().
   const STOPS = (() => {
     const s = [];
-    for (let i = 1; i * STEP < 3; i++) s.push(i * STEP); // 0.25 .. 2.75
-    s.push(3, 4, 8, 16);
+    for (let r = MIN; r <= MAX + 1e-9; r += STEP) {
+      s.push(Math.round(r * 100) / 100);
+    }
     return s;
   })();
 
@@ -30,15 +37,22 @@
   const STYLE_ID = "tcs-speed-style";
 
   // Double chevron facon "avance/recul rapide". Glyphe qui remplit le viewBox
-  // pour rester compact contre le libelle (taille pilotee par le CSS).
-  const ICON_DOWN = `<svg viewBox="0 0 24 24" fill="#fff"><path d="M 21 5 L 13 12 L 21 19 Z M 12 5 L 4 12 L 12 19 Z"></path></svg>`;
-  const ICON_UP = `<svg viewBox="0 0 24 24" fill="#fff"><path d="M 3 5 L 11 12 L 3 19 Z M 12 5 L 20 12 L 12 19 Z"></path></svg>`;
+  // pour rester compact contre le libelle (taille pilotee par le CSS). On ne
+  // garde que le `d` du <path> : le SVG est construit via le DOM (createElementNS)
+  // car en monde MAIN YouTube impose Trusted Types et `innerHTML="<svg…>"` jette.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const PATH_DOWN = "M 21 5 L 13 12 L 21 19 Z M 12 5 L 4 12 L 12 19 Z";
+  const PATH_UP = "M 3 5 L 11 12 L 3 19 Z M 12 5 L 20 12 L 12 19 Z";
 
-  // Vitesse souhaitee, source de verite. Reimposee apres chaque reset YouTube.
+  // Vitesse souhaitee pour la video courante. Repart a 1x a chaque nouvelle video.
   let desiredRate = 1;
-  // Pendant cette fenetre (apres un changement de video), un reset a la valeur
-  // par defaut est ignore : on reimpose desiredRate au lieu de l'adopter.
+  // Pendant cette fenetre (apres un changement de video), on reimpose desiredRate
+  // au lieu d'adopter la vitesse que YouTube applique (YouTube persiste nativement
+  // la vitesse d'une video a l'autre — on veut justement la forcer a 1x).
   let resetGraceUntil = 0;
+  // videoId courant : sert a ne reinitialiser a 1x que sur un VRAI changement de
+  // video (pas sur un loadstart de pub / changement de qualite de la meme video).
+  let lastVideoId = null;
 
   function log(...args) {
     console.log(TAG, ...args);
@@ -72,6 +86,13 @@
     return n + "x";
   }
 
+  // Lecteur YouTube : en monde MAIN on voit ses methodes internes (posees par
+  // YouTube), notamment setPlaybackRate/getPlaybackRate.
+  function getPlayer() {
+    const p = document.getElementById("movie_player");
+    return p && typeof p.setPlaybackRate === "function" ? p : null;
+  }
+
   function getVideo() {
     return (
       document.querySelector(".html5-main-video") ||
@@ -80,14 +101,38 @@
     );
   }
 
-  // Applique desiredRate a la video (si different) et rafraichit les libelles.
-  function applyRate() {
-    const video = getVideo();
-    if (video && video.playbackRate !== desiredRate) {
+  // Vitesse reelle cote lecteur (source de verite YouTube). Fallback sur
+  // l'element video si l'API n'est pas encore disponible.
+  function getCurrentRate() {
+    const player = getPlayer();
+    if (player) {
       try {
-        video.playbackRate = desiredRate;
+        return player.getPlaybackRate();
       } catch {
         /* ignore */
+      }
+    }
+    const video = getVideo();
+    return video ? video.playbackRate : null;
+  }
+
+  // Applique desiredRate via l'API du lecteur. Ecrire directement
+  // video.playbackRate ne pilote plus la lecture (YouTube le reimpose).
+  function applyRate() {
+    const player = getPlayer();
+    if (player) {
+      let current;
+      try {
+        current = player.getPlaybackRate();
+      } catch {
+        current = null;
+      }
+      if (current !== desiredRate) {
+        try {
+          player.setPlaybackRate(desiredRate);
+        } catch {
+          /* ignore */
+        }
       }
     }
     updateAllLabels();
@@ -96,27 +141,36 @@
   function setRate(r) {
     desiredRate = clampRate(r);
     applyRate();
-    save();
   }
 
-  function save() {
-    try {
-      chrome.storage.local.set({ [STORAGE_KEY]: desiredRate });
-    } catch {
-      /* contexte d'extension invalide -> on ignore */
+  // --- Detection de changement de video ------------------------------------
+
+  function currentVideoId() {
+    const q = location.search.match(/[?&]v=([^&]+)/);
+    if (q) return q[1];
+    const s = location.pathname.match(/^\/shorts\/([^/?]+)/);
+    return s ? s[1] : null;
+  }
+
+  // Met a jour lastVideoId ; renvoie true si on vient d'arriver sur une nouvelle
+  // video (id different du precedent).
+  function syncVideoId() {
+    const id = currentVideoId();
+    if (id && id !== lastVideoId) {
+      lastVideoId = id;
+      return true;
     }
+    return false;
   }
 
-  // --- Synchro avec les changements de vitesse de la video -----------------
+  // --- Synchro avec les changements de vitesse du lecteur ------------------
 
   function onRateChange() {
-    const video = getVideo();
-    if (!video) return;
-    const r = video.playbackRate;
-    if (r === desiredRate) return; // notre propre changement -> rien a faire
+    const r = getCurrentRate();
+    if (r == null || r === desiredRate) return; // notre propre changement -> rien
 
-    // Une nouvelle video remet la vitesse a la valeur par defaut : pendant la
-    // fenetre de grace on reimpose desiredRate plutot que de l'adopter.
+    // Une nouvelle video remet la vitesse a 1x : pendant la fenetre de grace on
+    // reimpose desiredRate plutot que de l'adopter.
     if (Date.now() < resetGraceUntil) {
       applyRate();
       return;
@@ -126,16 +180,25 @@
     // On adopte sa valeur pour rester synchronise.
     desiredRate = clampRate(r);
     updateAllLabels();
-    save();
+  }
+
+  // Rafale de reimpositions : au chargement / apres navigation, le lecteur
+  // repart a 1x et l'API (#movie_player) n'est pas toujours prete tout de suite.
+  let burstTimers = [];
+  function burstApplyRate() {
+    burstTimers.forEach(clearTimeout);
+    burstTimers = [0, 300, 800, 1500, 3000].map((d) =>
+      setTimeout(applyRate, d),
+    );
   }
 
   function onLoadStart() {
-    // Nouveau media -> YouTube reinitialise playbackRate. On reimpose, avec
-    // quelques tentatives differees car le reset peut arriver apres loadstart.
-    resetGraceUntil = Date.now() + 1500;
-    applyRate();
-    setTimeout(applyRate, 300);
-    setTimeout(applyRate, 1000);
+    // Nouveau media. Si c'est une nouvelle video -> on repart a 1x ; sinon (pub
+    // ou changement de qualite sur la meme video) on garde la vitesse courante.
+    // La grace couvre tout le burst pour battre la vitesse persistee de YouTube.
+    if (syncVideoId()) desiredRate = 1;
+    resetGraceUntil = Date.now() + 3500;
+    burstApplyRate();
   }
 
   function bindVideo() {
@@ -149,13 +212,25 @@
 
   // --- Widget --------------------------------------------------------------
 
-  function makeButton(cls, title, svg, onClick) {
+  // Construit l'icone SVG via le DOM (createElementNS) plutot qu'innerHTML :
+  // en monde MAIN, la CSP Trusted Types de YouTube fait jeter innerHTML.
+  function makeIcon(pathD) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "#fff");
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", pathD);
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function makeButton(cls, title, pathD, onClick) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "ytp-button tcs-btn " + cls;
     btn.title = title;
     btn.setAttribute("aria-label", title);
-    btn.innerHTML = svg;
+    btn.appendChild(makeIcon(pathD));
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -169,7 +244,7 @@
     const wrap = document.createElement("div");
     wrap.className = CONTROL_CLASS;
 
-    const down = makeButton("tcs-down", "Diminuer la vitesse", ICON_DOWN, () =>
+    const down = makeButton("tcs-down", "Diminuer la vitesse", PATH_DOWN, () =>
       setRate(prevStop(desiredRate)),
     );
 
@@ -183,7 +258,7 @@
       setRate(1);
     });
 
-    const up = makeButton("tcs-up", "Augmenter la vitesse", ICON_UP, () =>
+    const up = makeButton("tcs-up", "Augmenter la vitesse", PATH_UP, () =>
       setRate(nextStop(desiredRate)),
     );
 
@@ -261,32 +336,26 @@
   }
 
   function reapplyAfterNav() {
-    resetGraceUntil = Date.now() + 1500;
+    // Changement de video en SPA : on repart a 1x si le videoId a change.
+    if (syncVideoId()) desiredRate = 1;
+    resetGraceUntil = Date.now() + 3500;
     ensureWidgets();
     bindVideo();
-    applyRate();
-    setTimeout(applyRate, 300);
-    setTimeout(applyRate, 1000);
+    burstApplyRate();
   }
 
   function init() {
     injectStyles();
 
-    // Charge la vitesse memorisee, puis construit / applique.
-    try {
-      chrome.storage.local.get(STORAGE_KEY, (obj) => {
-        void chrome.runtime.lastError;
-        const saved = obj && obj[STORAGE_KEY];
-        if (typeof saved === "number" && saved > 0)
-          desiredRate = clampRate(saved);
-        ensureWidgets();
-        bindVideo();
-        applyRate();
-      });
-    } catch {
-      ensureWidgets();
-      bindVideo();
-    }
+    // Demarre a 1x (pas de persistance) et force cette valeur via la grace, meme
+    // si YouTube a memorise une autre vitesse. On note le videoId courant pour
+    // detecter les prochains changements de video.
+    syncVideoId();
+    desiredRate = 1;
+    resetGraceUntil = Date.now() + 3500;
+    ensureWidgets();
+    bindVideo();
+    burstApplyRate();
 
     // Navigation SPA YouTube (changement de video sans rechargement).
     document.addEventListener("yt-navigate-finish", reapplyAfterNav);
