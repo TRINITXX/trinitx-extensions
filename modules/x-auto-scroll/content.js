@@ -31,7 +31,7 @@
   const AUTOSCROLL_POLL_MS = 100; // lazy-load poll interval
   const STUCK_LIMIT = 3; // consecutive "bottom & no growth" before giving up
   const RESUME_TRACKING_DELAY_MS = 2500; // resume tracking after a jump
-  const REPOSITION_MAX_MS = 8000; // Feature 1: cap for scrolling back to reading pos
+  const TELEPORT_GUARD_MS = 2000; // Feature 1: window to re-assert pos if X resets scroll
 
   let lastSeenHref = null;
   let isAutoScrolling = false;
@@ -160,76 +160,52 @@
   // --- Feature 1: Keep reading position when loading "voir X nouveaux" ---
 
   // After X prepends the new posts (and scrolls to top, virtualizing the tweet
-  // we were on), gently scroll back down to that tweet and settle it at its
-  // original viewport offset. Uses the same small-step search as the
-  // scroll-to-last-seen button (which doesn't disturb X) instead of the old
-  // crude 500px probing loop that made X reinsert already-seen posts on top.
-  function repositionToReadingTweet(href, beforeTop) {
+  // we were on), jump straight back to that tweet. The click on "voir X
+  // nouveaux" always happens at the top of the timeline, so the tweet we were
+  // reading now sits exactly at `heightDelta` (the height of the inserted
+  // posts). Teleport there in one assignment, let the virtualizer render
+  // around the new position, then settle precisely on the tweet by href.
+  // If the estimate misses, do nothing — the user just scrolls manually.
+  function repositionToReadingTweet(href, beforeTop, beforeHeight) {
     const docEl = document.documentElement;
-    const startTime = Date.now();
-    let stuck = 0;
 
-    function settleOn(tweet) {
-      const targetY =
-        docEl.scrollTop + tweet.getBoundingClientRect().top - beforeTop;
-      smoothScrollTo(targetY);
-      log("reading position restored");
+    const heightDelta = docEl.scrollHeight - beforeHeight;
+    if (heightDelta <= 0) {
+      log("no height growth — nothing to do");
+      return;
     }
+    let target = heightDelta;
+    docEl.scrollTop = target;
+    log("teleported by height delta:", heightDelta);
 
-    function tick() {
-      const found = findTweetByHref(href);
-      if (found) {
-        settleOn(found);
-        return;
-      }
-      if (Date.now() - startTime >= REPOSITION_MAX_MS) {
-        log("reposition gave up (timeout)");
-        return;
-      }
-      const beforeScroll = docEl.scrollTop;
-      const beforeHeight = docEl.scrollHeight;
-      docEl.scrollTop =
-        beforeScroll + window.innerHeight * AUTOSCROLL_STEP_FRACTION;
+    const t0 = Date.now();
+    let found = null;
 
-      setTimeout(() => {
-        const t1 = findTweetByHref(href);
-        if (t1) {
-          settleOn(t1);
+    (function verifyAndGuard() {
+      // X sometimes issues its own scroll-to-top a beat after prepending the
+      // posts, yanking us back up right after the teleport: re-assert the
+      // position whenever the page snaps back near the top during the guard
+      // window.
+      if (docEl.scrollTop < Math.min(400, target / 2)) {
+        log("scroll reset by X — re-teleporting");
+        docEl.scrollTop = target;
+      }
+      if (!found) {
+        found = findTweetByHref(href);
+        if (found) {
+          target =
+            docEl.scrollTop + found.getBoundingClientRect().top - beforeTop;
+          smoothScrollTo(target);
+          log("reading position restored");
+        } else if (Date.now() - t0 >= AUTOSCROLL_STEP_WAIT_MS) {
+          log("teleport miss — giving up");
           return;
         }
-        if (docEl.scrollTop > beforeScroll + 4) {
-          stuck = 0;
-          tick(); // content already loaded -> keep moving
-          return;
-        }
-        // Bottom of loaded content: wait for X to lazy-load more.
-        const t0 = Date.now();
-        (function waitGrow() {
-          const t2 = findTweetByHref(href);
-          if (t2) {
-            settleOn(t2);
-            return;
-          }
-          if (docEl.scrollHeight > beforeHeight + 4) {
-            stuck = 0;
-            tick();
-            return;
-          }
-          if (Date.now() - t0 >= AUTOSCROLL_STEP_WAIT_MS) {
-            stuck++;
-            if (stuck >= STUCK_LIMIT) {
-              log("reposition gave up (bottom)");
-              return;
-            }
-            tick();
-            return;
-          }
-          setTimeout(waitGrow, AUTOSCROLL_POLL_MS);
-        })();
-      }, RENDER_SETTLE_MS);
-    }
-
-    tick();
+      }
+      if (Date.now() - t0 < TELEPORT_GUARD_MS) {
+        setTimeout(verifyAndGuard, AUTOSCROLL_POLL_MS);
+      }
+    })();
   }
 
   function handleClick(e) {
@@ -264,11 +240,15 @@
       return;
     }
 
-    // Remember exactly where the tweet we're reading sits in the viewport,
-    // then let X prepend the new posts natively before we scroll back to it.
+    // Remember where the tweet we're reading sits (viewport offset and total
+    // timeline height), then let X prepend the new posts natively before we
+    // teleport back to it via the height delta.
     const beforeTop = targetTweet.getBoundingClientRect().top;
+    const beforeHeight = document.documentElement.scrollHeight;
 
-    waitForDomStable(() => repositionToReadingTweet(href, beforeTop));
+    waitForDomStable(() =>
+      repositionToReadingTweet(href, beforeTop, beforeHeight),
+    );
   }
 
   // --- Feature 2: Last seen tweet tracking & scroll-to button ---
