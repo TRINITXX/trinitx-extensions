@@ -13,6 +13,8 @@ const DEFAULT_MODULES = {
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
   youtubeBestQuality: true,
+  xMuteSelection: true,
+  xHideByCountry: false,
 };
 
 function showStatus(msg) {
@@ -143,6 +145,80 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // --- X — Masquer par pays (liste de pays a masquer) ------------------------
+  // La blacklist vit dans chrome.storage.local (cle hiddenCountries). Le content
+  // script la lit via storage.onChanged et re-evalue le fil en direct. Tant que
+  // la cle est absente, on part des defauts (Afrique + Inde + Pakistan).
+  const XHBC_KEY = "hiddenCountries";
+  const xhbcData = window.X_HIDE_BY_COUNTRY || {
+    COUNTRIES: [],
+    DEFAULT_HIDDEN: [],
+  };
+  const xhbcPanel = document.getElementById("xhbc-panel");
+  const xhbcSearch = document.getElementById("xhbc-search");
+  const xhbcList = document.getElementById("xhbc-list");
+  const xhbcSummary = document.getElementById("xhbc-summary");
+  let xhbcHidden = new Set();
+  let xhbcRendered = false;
+
+  const xhbcStored = await chrome.storage.local.get(XHBC_KEY);
+  xhbcHidden = new Set(
+    Array.isArray(xhbcStored[XHBC_KEY])
+      ? xhbcStored[XHBC_KEY]
+      : xhbcData.DEFAULT_HIDDEN,
+  );
+
+  const xhbcSave = () =>
+    chrome.storage.local.set({ [XHBC_KEY]: [...xhbcHidden] });
+
+  const xhbcRenderSummary = () => {
+    const n = xhbcHidden.size;
+    xhbcSummary.textContent = `${n} pays masqué${n > 1 ? "s" : ""}`;
+  };
+
+  const xhbcRender = () => {
+    const frag = document.createDocumentFragment();
+    const sorted = [...xhbcData.COUNTRIES].sort((a, b) =>
+      a.n.localeCompare(b.n, "en"),
+    );
+    for (const { n, f } of sorted) {
+      const row = document.createElement("label");
+      row.className = "xhbc-row";
+      row.dataset.name = n.toLowerCase();
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = xhbcHidden.has(n);
+      cb.addEventListener("change", () => {
+        if (cb.checked) xhbcHidden.add(n);
+        else xhbcHidden.delete(n);
+        xhbcRenderSummary();
+        xhbcSave();
+      });
+
+      const flag = document.createElement("span");
+      flag.className = "xhbc-flag";
+      flag.textContent = f;
+
+      const name = document.createElement("span");
+      name.className = "xhbc-name";
+      name.textContent = n;
+
+      row.append(cb, flag, name);
+      frag.appendChild(row);
+    }
+    xhbcList.appendChild(frag);
+    xhbcRenderSummary();
+    xhbcRendered = true;
+  };
+
+  xhbcSearch.addEventListener("input", () => {
+    const term = xhbcSearch.value.trim().toLowerCase();
+    xhbcList.querySelectorAll(".xhbc-row").forEach((r) => {
+      r.style.display = !term || r.dataset.name.includes(term) ? "" : "none";
+    });
+  });
+
   // Actions
   document.querySelectorAll("a.action").forEach((a) => {
     a.addEventListener("click", async (e) => {
@@ -165,6 +241,13 @@ document.addEventListener("DOMContentLoaded", async () => {
           ? "Filtres d'exclusion →"
           : "Filtres d'exclusion ↓";
         if (!filtersPanel.hidden) patternsEl.focus();
+      } else if (action === "xhbc-settings") {
+        xhbcPanel.hidden = !xhbcPanel.hidden;
+        a.textContent = xhbcPanel.hidden ? "Réglages pays →" : "Réglages pays ↓";
+        if (!xhbcPanel.hidden) {
+          if (!xhbcRendered) xhbcRender();
+          xhbcSearch.focus();
+        }
       }
     });
   });

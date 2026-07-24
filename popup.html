@@ -131,6 +131,24 @@
         </div>
       </section>
 
+      <!-- X — Masquer sur X (menu contextuel) -->
+      <section class="module" data-module="xMuteSelection">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>X — Masquer la sélection</h2>
+            <p>
+              Clic droit sur du texte sélectionné sur X → « Masquer sur X » :
+              l'ajoute à tes mots masqués (de tout le monde, sans limite de
+              temps) via une fenêtre d'arrière-plan invisible.
+            </p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="xMuteSelection" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
       <!-- X — Masquer les partenariats -->
       <section class="module" data-module="xHideSponsored">
         <div class="module-row">
@@ -146,6 +164,41 @@
             <input type="checkbox" data-module="xHideSponsored" />
             <span class="slider"></span>
           </label>
+        </div>
+      </section>
+
+      <!-- X — Masquer par pays -->
+      <section class="module" data-module="xHideByCountry">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>X — Masquer par pays</h2>
+            <p>
+              Masque les tweets des comptes basés dans les pays de ta liste
+              (d'après la provenance affichée par X). Par défaut : Afrique, Inde,
+              Pakistan.
+            </p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="xHideByCountry" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="module-extra">
+          <a href="#" class="action" data-action="xhbc-settings"
+            >Réglages pays →</a
+          >
+        </div>
+        <div class="country-panel" id="xhbc-panel" hidden>
+          <input
+            type="text"
+            id="xhbc-search"
+            class="xhbc-search"
+            placeholder="Rechercher un pays…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="xhbc-summary" id="xhbc-summary"></div>
+          <div class="country-list" id="xhbc-list"></div>
         </div>
       </section>
 
@@ -340,6 +393,7 @@
       <span class="version">v1.0.0</span>
     </footer>
 
+    <script src="modules/x-hide-by-country/countries.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

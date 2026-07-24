@@ -251,6 +251,62 @@ main {
   border-color: var(--accent);
 }
 
+/* Panneau "Masquer par pays" */
+.country-panel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.xhbc-search {
+  width: 100%;
+  background: #11141a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.xhbc-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.xhbc-summary {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  margin: 7px 0 6px;
+}
+.country-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #11141a;
+}
+.xhbc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.xhbc-row:hover {
+  background: var(--card-hover);
+}
+.xhbc-row input {
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.xhbc-flag {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.xhbc-name {
+  color: var(--text);
+}
+
 /* Switch */
 .switch {
   position: relative;

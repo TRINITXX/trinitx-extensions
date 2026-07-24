@@ -24,6 +24,11 @@ const DEFAULT_MODULES = {
   youtubeNoTranslation: true,
   // Force la meilleure qualité dispo sur chaque vidéo YouTube : ON par defaut.
   youtubeBestQuality: true,
+  // Menu contextuel "Masquer sur X" sur une selection : ON par defaut.
+  xMuteSelection: true,
+  // Masquer les tweets par pays d'origine : OFF par defaut (genere du trafic
+  // API en arriere-plan -> opt-in volontaire).
+  xHideByCountry: false,
 };
 
 // Modules a base de content scripts (enregistres seulement si actives)
@@ -92,6 +97,30 @@ const CONTENT_MODULES = {
   xHideSponsored: {
     id: "x-hide-sponsored",
     js: ["modules/x-hide-sponsored/content.js"],
+    matches: ["*://x.com/*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
+  },
+  // Driver du menu contextuel "Masquer sur X" : tourne UNIQUEMENT sur la page
+  // d'ajout de mot masque. Le menu contextuel lui-meme + l'orchestration de la
+  // fenetre arriere-plan vivent plus bas dans ce fichier (section dediee).
+  xMuteSelection: {
+    id: "x-mute-selection",
+    js: ["modules/x-mute-selection/content.js"],
+    matches: ["*://x.com/settings/add_muted_keyword*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
+  },
+  // Masque les tweets des comptes bases dans certains pays. ISOLATED : fait ses
+  // propres appels AboutAccountQuery (bearer public + ct0, comme x-quick-block)
+  // et masque en DOM. countries.js (liste canonique + defauts, source unique
+  // partagee avec le popup) est charge AVANT content.js.
+  xHideByCountry: {
+    id: "x-hide-by-country",
+    js: [
+      "modules/x-hide-by-country/countries.js",
+      "modules/x-hide-by-country/content.js",
+    ],
     matches: ["*://x.com/*"],
     world: "ISOLATED",
     runAt: "document_idle",
@@ -512,6 +541,130 @@ async function reloadWindowTabs() {
 }
 
 // ===========================================================================
+// MODULE Masquer sur X — menu contextuel sur selection -> mot masque
+// ===========================================================================
+// Le menu "Masquer sur X" apparait au clic droit sur du texte selectionne, sur
+// x.com. Au clic, on ouvre x.com/settings/add_muted_keyword dans une fenetre
+// minimisee en arriere-plan et on memorise un "job" (le mot) pour l'onglet ; le
+// content script x-mute-selection remplit alors le formulaire natif et le
+// soumet. Faire signer la requete par le client de X evite de reimplementer sa
+// signature anti-bot (x-client-transaction-id), obligatoire sur cet endpoint.
+const MUTE_MENU_ID = "x-mute-selection";
+const MUTE_JOB_PREFIX = "xMuteJob_"; // storage.session : job par onglet driver
+
+async function isMuteModuleEnabled() {
+  const mods = await getModules();
+  return (await isMasterEnabled()) && !!mods.xMuteSelection;
+}
+
+// (Re)cree le menu selon l'etat du module. removeAll d'abord : idempotent et
+// evite l'erreur "duplicate id" apres un redemarrage du service worker.
+//
+// SERIALISE : plusieurs declencheurs (onInstalled + storage.onChanged des ecritures
+// modules/masterEnabled) appellent syncMuteMenu() quasi simultanement. Sans lock,
+// deux removeAll()/create() s'entrelacent -> "Cannot create item with duplicate id".
+// On enchaine donc les appels sur une meme promesse. Le callback de create() lit
+// runtime.lastError pour ne pas laisser d'erreur "non lue" dans la console.
+let muteMenuSync = Promise.resolve();
+function syncMuteMenu() {
+  muteMenuSync = muteMenuSync.then(doSyncMuteMenu, doSyncMuteMenu);
+  return muteMenuSync;
+}
+async function doSyncMuteMenu() {
+  try {
+    await chrome.contextMenus.removeAll();
+  } catch {}
+  if (await isMuteModuleEnabled()) {
+    await new Promise((resolve) => {
+      chrome.contextMenus.create(
+        {
+          id: MUTE_MENU_ID,
+          title: "Masquer « %s » sur X",
+          contexts: ["selection"],
+          documentUrlPatterns: ["*://x.com/*"],
+        },
+        () => {
+          void chrome.runtime.lastError; // absorbe un eventuel "duplicate id"
+          resolve();
+        },
+      );
+    });
+  }
+}
+
+// Jobs stockes en storage.session (survit aux suspensions du service worker).
+function setMuteJob(tabId, job) {
+  return chrome.storage.session.set({ [MUTE_JOB_PREFIX + tabId]: job });
+}
+async function getMuteJob(tabId) {
+  const key = MUTE_JOB_PREFIX + tabId;
+  const obj = await chrome.storage.session.get(key);
+  return obj[key] || null;
+}
+function clearMuteJob(tabId) {
+  return chrome.storage.session.remove(MUTE_JOB_PREFIX + tabId);
+}
+
+async function openMuteWindow(keyword) {
+  let win;
+  try {
+    win = await chrome.windows.create({
+      url: "https://x.com/settings/add_muted_keyword",
+      state: "minimized", // arriere-plan : ne vole pas le focus, page invisible
+    });
+  } catch (e) {
+    console.warn(TAG, "ouverture fenetre mute echec:", e.message);
+    return;
+  }
+  const tab = win.tabs && win.tabs[0];
+  if (!tab || tab.id == null) {
+    chrome.windows.remove(win.id).catch(() => {});
+    return;
+  }
+  await setMuteJob(tab.id, { keyword, windowId: win.id });
+}
+
+chrome.contextMenus.onClicked.addListener(async (info) => {
+  if (info.menuItemId !== MUTE_MENU_ID) return;
+  if (!(await isMuteModuleEnabled())) return;
+  const keyword = (info.selectionText || "").trim();
+  if (!keyword) return;
+  await openMuteWindow(keyword);
+});
+
+// Messages du content script driver : demande de job / fin de job.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || (msg.type !== "mute-job-request" && msg.type !== "mute-job-done"))
+    return;
+  const tabId = sender.tab && sender.tab.id;
+  if (msg.type === "mute-job-request") {
+    (async () => {
+      const job = tabId != null ? await getMuteJob(tabId) : null;
+      sendResponse({ keyword: job ? job.keyword : null });
+    })();
+    return true; // reponse asynchrone
+  }
+  // mute-job-done : fermer la fenetre, nettoyer, flasher un retour discret.
+  (async () => {
+    const job = tabId != null ? await getMuteJob(tabId) : null;
+    if (job) {
+      await clearMuteJob(tabId);
+      chrome.windows.remove(job.windowId).catch(() => {});
+      if (msg.ok) flashBadge("✓", "#33aa33");
+      else flashBadge("!", "#cc3333");
+      console.log(TAG, "mot masque:", msg.ok ? "ok" : "echec", msg.keyword || "");
+    }
+    sendResponse({ ok: true });
+  })();
+  return true;
+});
+
+// Si l'utilisateur ferme lui-meme la fenetre du job, on nettoie l'entree.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  clearMuteJob(tabId).catch(() => {});
+});
+
+// ===========================================================================
 // Wiring
 // ===========================================================================
 chrome.commands.onCommand.addListener(async (command) => {
@@ -545,6 +698,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== "local" || (!changes.modules && !changes.masterEnabled)) return;
   await syncRegistrations();
+  await syncMuteMenu();
 
   // Plus rien a injecter si l'interrupteur maitre est OFF.
   if (!(await isMasterEnabled())) return;
@@ -574,8 +728,12 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.local.set({ masterEnabled: true });
   }
   await syncRegistrations();
+  await syncMuteMenu();
 });
 
-chrome.runtime.onStartup.addListener(syncRegistrations);
+chrome.runtime.onStartup.addListener(async () => {
+  await syncRegistrations();
+  await syncMuteMenu();
+});
 
 console.log(TAG, "service worker demarre");

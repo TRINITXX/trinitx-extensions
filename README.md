@@ -1,6 +1,6 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 13 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 14 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
 | Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
@@ -9,7 +9,9 @@ extension, avec un popup pour activer/désactiver chacun.
 | **X — Tri par likes**            | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                                        |
 | **X — Auto-scroll**              | x.com              | Reprend ta position de lecture sur le fil                                                                                                    |
 | **X — Block en 1 clic**          | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                                           |
+| **X — Masquer la sélection**     | x.com              | Clic droit sur une sélection → « Masquer sur X » : ajoute le texte aux mots masqués (de tout le monde, sans limite) via une fenêtre invisible |
 | **X — Masquer les partenariats** | x.com              | Cache les tweets marqués « Partenariat rémunéré » (contenus sponsorisés) et la suite du thread quand l'auteur enchaîne des réponses          |
+| **X — Masquer par pays**         | x.com              | Masque les tweets des comptes basés dans les pays de ta liste (provenance « About this account » de X) ; liste par défaut : Afrique, Inde, Pakistan |
 | **X — Thème Dim**                | x.com, twitter.com | Restaure le thème bleu « Dim » par-dessus le mode sombre actuel (fond, textes, bordures, scrollbar)                                          |
 | **Twitch — VOD sub-only**        | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
 | **Twitch — Anti-pub (vaft)**     | twitch.tv          | Bloque les pubs des lives (variante _vaft_ de [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions))                           |
@@ -52,7 +54,11 @@ trinitx-extensions/
     ├── x-auto-sort/main.js        # monde MAIN, intercepte fetch/XHR
     ├── x-auto-scroll/content.js   # monde ISOLATED, scroll position
     ├── x-quick-block/content.js   # monde ISOLATED, block 1 clic (API interne X)
+    ├── x-mute-selection/content.js  # monde ISOLATED, pilote le formulaire natif des mots masqués
     ├── x-hide-sponsored/content.js  # monde ISOLATED, masque les partenariats rémunérés
+    ├── x-hide-by-country/           # monde ISOLATED, masque les tweets par pays d'origine
+    │   ├── countries.js             # liste canonique + défauts (partagée popup/content)
+    │   └── content.js               # scan + AboutAccountQuery (API interne X) + cache IndexedDB
     ├── x-dim-theme/content.js     # monde ISOLATED, restaure le thème Dim (CSS)
     ├── youtube-custom-speed/content.js  # monde ISOLATED, widget vitesse perso
     ├── youtube-best-quality/main.js     # monde MAIN, force la meilleure qualité (API du lecteur)
@@ -86,6 +92,36 @@ revenir en arrière, et le tweet est grisé en attendant.
 
 L'icône reste discrète (gris au repos, à peine plus marquée au survol) et
 apparaît sur le fil, les pages de tweet et les fils de réponses.
+
+## Le module « X — Masquer par pays »
+
+Masque les tweets des comptes selon leur **pays d'origine** — la provenance que X
+expose désormais dans « About this account » (`account_based_in`). Cette info
+**n'est pas** dans la timeline : le module fait un appel GraphQL dédié
+**`AboutAccountQuery`** par auteur croisé, signé par ta session (bearer web public
++ cookie `ct0`, exactement comme « Block en 1 clic » — **pas** l'API dev payante).
+
+- **Liste de pays** modifiable dans le popup (lien _« Réglages pays »_) : recherche
+  + cases à cocher (drapeau + nom). Cocher = masquer, décocher = ré-afficher. La
+  blacklist est stockée dans `chrome.storage.local` (clé `hiddenCountries`) et le
+  content script la relit **en direct** via `storage.onChanged`.
+- **Par défaut** : les 54 pays d'Afrique + Inde + Pakistan + les buckets régionaux
+  correspondants (`Africa`, `North Africa`, `South Asia`) — un compte peut n'être
+  étiqueté qu'au niveau région. La source unique de la liste et des défauts est
+  `modules/x-hide-by-country/countries.js` (partagée entre popup et content script).
+- **Cache IndexedDB** (base `xHideByCountry`, TTL **180 jours**) : chaque compte
+  n'est interrogé qu'une fois, puis masquage instantané. Un compte **jamais croisé**
+  provoque un bref _flash_ (le tweet s'affiche puis disparaît le temps de résoudre
+  son pays) ; ensuite plus jamais. **Throttle** 500 ms entre appels + backoff sur
+  `429` (bascule POST/GET) pour rester sous les rate-limits.
+- Compte sans pays / privé / erreur API → **reste visible**.
+- **OFF par défaut** : contrairement aux autres modules, il génère du trafic API en
+  arrière-plan (un appel par auteur non caché), donc opt-in volontaire.
+
+⚠️ **Maintenance** : le **bearer** et le **query id** de `AboutAccountQuery` sont
+codés en dur dans `content.js`. Si X les fait tourner et que les appels échouent,
+re-capturer les valeurs depuis une requête live et mettre à jour les constantes
+(même logique que « Block en 1 clic »).
 
 ## Recharger les onglets
 
