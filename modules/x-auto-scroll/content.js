@@ -24,12 +24,14 @@
   const INITIAL_SAVE_DELAY_MS = 5 * 60 * 1000;
 
   // --- Scroll-to-last-seen tuning ---
-  const AUTOSCROLL_MAX_MS = 30000; // hard wall-clock cap (~30s)
+  // Budget of *active* search time (see below): time spent while the tab was
+  // hidden doesn't count, so leaving the tab mid-search never burns the budget.
+  const AUTOSCROLL_MAX_ACTIVE_MS = 180000; // 3 min of actual scrolling
   const AUTOSCROLL_STEP_FRACTION = 0.7; // scroll < 1 viewport per step (no skip)
   const RENDER_SETTLE_MS = 80; // short pause for X to render after a step
-  const AUTOSCROLL_STEP_WAIT_MS = 1200; // max wait for lazy-load when stuck
+  const AUTOSCROLL_STEP_WAIT_MS = 2000; // max wait for lazy-load when stuck
   const AUTOSCROLL_POLL_MS = 100; // lazy-load poll interval
-  const STUCK_LIMIT = 3; // consecutive "bottom & no growth" before giving up
+  const STUCK_LIMIT = 4; // consecutive "bottom & no growth" before giving up
   const RESUME_TRACKING_DELAY_MS = 2500; // resume tracking after a jump
   const TELEPORT_GUARD_MS = 2000; // Feature 1: window to re-assert pos if X resets scroll
 
@@ -43,6 +45,9 @@
   let jumpedToLastSeen = false;
   let scrollButton = null;
   let saveDebounceTimer = null;
+  // Teardown of the auto-scroll run in progress (set by startAutoScroll), so
+  // cancelling from the outside also drops its listeners and timers.
+  let stopCurrentRun = null;
   const pageLoadTime = Date.now(); // when this x.com tab was loaded (for INITIAL_SAVE_DELAY_MS)
 
   function log(...args) {
@@ -366,6 +371,19 @@
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
       }
+      /* Search suspended because the tab is in the background: Chrome freezes
+         rendering there, so nothing can progress until the tab is visible. */
+      #x-autoscroll-btn.paused {
+        background: rgba(255, 173, 31, 0.85);
+        color: white;
+      }
+      #x-autoscroll-btn.paused svg {
+        animation: x-autoscroll-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes x-autoscroll-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+      }
       #x-autoscroll-btn.found {
         background: rgba(23, 191, 99, 0.8);
         color: white;
@@ -461,19 +479,79 @@
     isAutoScrolling = true;
     scrollButton.classList.remove("found", "not-found");
     scrollButton.classList.add("scrolling");
+    scrollButton.title = "Recherche en cours — cliquer pour annuler";
     showToast("Scrolling to last position...");
 
-    const startTime = Date.now();
+    // Chrome freezes the whole rendering pipeline of a hidden tab: no rAF, no
+    // scroll events, and X never renders nor lazy-loads anything. Verified: no
+    // API can opt out of it. So instead of fighting it, the search pauses when
+    // the tab goes away and resumes untouched when it comes back — progress
+    // (everything already loaded) is kept, and the time budget below only
+    // counts time actually spent scrolling.
+    let activeElapsed = 0;
+    let activeSince = Date.now();
+    let paused = false;
     let stuckCount = 0;
     let rafId = null;
     let stepTimer = null;
 
-    function stop() {
-      isAutoScrolling = false;
-      scrollButton.classList.remove("scrolling");
+    function activeMs() {
+      return activeElapsed + (paused ? 0 : Date.now() - activeSince);
+    }
+
+    function clearTimers() {
       if (rafId) cancelAnimationFrame(rafId);
       if (stepTimer) clearTimeout(stepTimer);
+      rafId = null;
+      stepTimer = null;
     }
+
+    function stop() {
+      isAutoScrolling = false;
+      paused = false;
+      stopCurrentRun = null;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      scrollButton.classList.remove("scrolling", "paused");
+      scrollButton.title = "Scroll to last position";
+      clearTimers();
+    }
+
+    function pause() {
+      if (paused) return;
+      paused = true;
+      activeElapsed += Date.now() - activeSince;
+      clearTimers();
+      scrollButton.classList.remove("scrolling");
+      scrollButton.classList.add("paused");
+      scrollButton.title =
+        "Recherche en pause — revenez sur cet onglet pour la reprendre";
+      log(
+        "paused (tab hidden) — progress kept, active time so far:",
+        Math.round(activeMs() / 1000) + "s",
+      );
+    }
+
+    function resume() {
+      if (!paused) return;
+      paused = false;
+      activeSince = Date.now();
+      scrollButton.classList.remove("paused");
+      scrollButton.classList.add("scrolling");
+      scrollButton.title = "Recherche en cours — cliquer pour annuler";
+      showToast("Reprise de la recherche...");
+      log("resumed (tab visible again)");
+      detectLoop();
+      step();
+    }
+
+    function onVisibilityChange() {
+      if (!isAutoScrolling) return;
+      if (document.visibilityState === "hidden") pause();
+      else resume();
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    stopCurrentRun = stop;
 
     function onFound(tweet) {
       stop();
@@ -517,7 +595,7 @@
       showToast(
         reason === "bottom"
           ? "Bas de la timeline atteint — tweet introuvable"
-          : "Position non trouvée (trop ancienne)",
+          : `Position non trouvée après ${Math.round(AUTOSCROLL_MAX_ACTIVE_MS / 60000)} min de recherche`,
       );
       log("auto-scroll gave up:", reason);
       updateButtonVisibility(); // keep the key & button for a retry
@@ -526,7 +604,7 @@
     // Continuous detection: catch the target even if it is rendered only
     // briefly between virtualization passes (fixes the ~1/4 intermittent miss).
     function detectLoop() {
-      if (!isAutoScrolling) return;
+      if (!isAutoScrolling || paused) return;
       const tweet = findTweetByHref(targetHref);
       if (tweet) {
         onFound(tweet);
@@ -540,7 +618,7 @@
     function waitForGrowth(prevHeight, done) {
       const t0 = Date.now();
       function check() {
-        if (!isAutoScrolling) return;
+        if (!isAutoScrolling || paused) return;
         const grew = document.documentElement.scrollHeight > prevHeight + 4;
         if (grew || Date.now() - t0 >= AUTOSCROLL_STEP_WAIT_MS) {
           done(grew);
@@ -552,9 +630,9 @@
     }
 
     function step() {
-      if (!isAutoScrolling) return;
+      if (!isAutoScrolling || paused) return;
 
-      if (Date.now() - startTime >= AUTOSCROLL_MAX_MS) {
+      if (activeMs() >= AUTOSCROLL_MAX_ACTIVE_MS) {
         giveUp("timeout");
         return;
       }
@@ -570,7 +648,7 @@
       // Short settle for render; detectLoop() (rAF) catches the target in the
       // meantime. Only wait long for lazy-load when the step couldn't advance.
       stepTimer = setTimeout(() => {
-        if (!isAutoScrolling) return;
+        if (!isAutoScrolling || paused) return;
         const moved = document.documentElement.scrollTop > beforeTop + 4;
         if (moved) {
           stuckCount = 0;
@@ -579,7 +657,7 @@
         }
         // Couldn't advance: at the bottom of loaded content -> wait for more.
         waitForGrowth(beforeHeight, (grew) => {
-          if (!isAutoScrolling) return;
+          if (!isAutoScrolling || paused) return;
           if (grew) {
             stuckCount = 0;
             step();
@@ -595,14 +673,20 @@
       }, RENDER_SETTLE_MS);
     }
 
+    // Normally we start from a click, so the tab is visible; guard anyway —
+    // both loops bail out on `paused` and resume() restarts them on return.
+    if (document.visibilityState === "hidden") pause();
+
     detectLoop();
     step();
   }
 
   function cancelAutoScroll() {
+    // Drops the run's visibilitychange listener and pending timers too.
+    if (stopCurrentRun) stopCurrentRun();
     isAutoScrolling = false;
     if (scrollButton) {
-      scrollButton.classList.remove("scrolling");
+      scrollButton.classList.remove("scrolling", "paused");
     }
     log("auto-scroll cancelled by user");
     showToast("Scroll cancelled");
