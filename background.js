@@ -450,14 +450,59 @@ async function handleTogglePip() {
   }
 }
 
-async function handleToggleMute() {
-  let tabId = await getRememberedTabId();
-  if (tabId == null) {
-    const active = await getActiveTab();
-    tabId = active ? active.id : null;
+// Injecte : l'onglet a-t-il un PiP ouvert (video natif ou Document PiP) ?
+function probePip() {
+  return !!(
+    document.pictureInPictureElement ||
+    (window.documentPictureInPicture && window.documentPictureInPicture.window)
+  );
+}
+
+async function tabHasPip(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: probePip,
+    });
+    return results.some((r) => r.result === true);
+  } catch {
+    // Onglet hors host_permissions (chrome://, autre site) : pas de PiP visible.
+    return false;
   }
+}
+
+// Retrouve l'onglet REELLEMENT en PiP, meme si le PiP a ete ouvert a la main
+// depuis la page (auquel cas pipTabId n'a jamais ete pose). On tente d'abord
+// l'onglet memorise, puis on balaie les onglets injectables — les onglets qui
+// produisent du son d'abord, c'est le cas courant.
+async function findPipTabId() {
+  const remembered = await getRememberedTabId();
+  if (remembered != null && (await tabHasPip(remembered))) return remembered;
+
+  // Limite au perimetre injectable : ailleurs, executeScript echouerait de toute facon.
+  const urls = chrome.runtime.getManifest().host_permissions || [];
+  const tabs = (await chrome.tabs.query({ url: urls })).filter(
+    (t) => t.id != null && t.id !== remembered,
+  );
+  tabs.sort((a, b) => (b.audible ? 1 : 0) - (a.audible ? 1 : 0));
+
+  const checks = await Promise.all(
+    tabs.map(async (t) => ({ id: t.id, pip: await tabHasPip(t.id) })),
+  );
+  const hit = checks.find((c) => c.pip);
+  if (!hit) return null;
+  await rememberPipTab(hit.id);
+  return hit.id;
+}
+
+async function handleToggleMute() {
+  // Cible l'onglet en PiP, jamais l'onglet actif : le raccourci sert a couper
+  // le stream qu'on regarde en vignette pendant qu'on lit autre chose.
+  let tabId = await findPipTabId();
+  if (tabId == null) tabId = await getRememberedTabId(); // dernier PiP connu
   if (tabId == null) {
-    console.warn(TAG, "aucun onglet a muter");
+    console.warn(TAG, "aucun onglet en PiP a muter");
+    flashBadge("!", "#cc3333");
     return;
   }
   const tab = await chrome.tabs.get(tabId);

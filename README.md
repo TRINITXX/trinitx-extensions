@@ -5,7 +5,7 @@ extension, avec un popup pour activer/désactiver chacun.
 
 | Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
 | -------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PiP hotkey + mute**            | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute cet onglet                 |
+| **PiP hotkey + mute**            | YouTube, Twitch    | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet PiP (même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute l'onglet réellement en PiP (jamais l'onglet actif) |
 | **X — Tri par likes**            | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                                        |
 | **X — Auto-scroll**              | x.com              | Reprend ta position de lecture sur le fil                                                                                                    |
 | **X — Block en 1 clic**          | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                                           |
