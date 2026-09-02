@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (Codex, Claude Code) when working with code in this repository.
 
 ## What this is
 
@@ -27,7 +27,7 @@ Two modules are NOT content scripts: **PiP hotkey + mute** (`background.js`, via
 
 ## Adding a module
 
-Use the **`/add-module` skill** (`.Codex/skills/add-module/`) — it scaffolds the file and wires every touch-point in the right order. The touch-points it covers: new `modules/<name>/content.js`, `CONTENT_MODULES` + `DEFAULT_MODULES` in `background.js`, `DEFAULT_MODULES` in `popup.js`, a `<section class="module">` in `popup.html`, and the README table. Update `manifest.json` only if a new permission / `host_permissions` / `web_accessible_resources` entry is required.
+Use the **`/add-module` skill** (`.agents/skills/add-module/`, mirrored in `.claude/skills/`) — it scaffolds the file and wires every touch-point in the right order. The touch-points it covers: new `modules/<name>/content.js`, `CONTENT_MODULES` + `DEFAULT_MODULES` in `background.js`, `DEFAULT_MODULES` in `popup.js`, a `<section class="module">` in `popup.html`, and the README table. Update `manifest.json` only if a new permission / `host_permissions` / `web_accessible_resources` entry is required.
 
 ## Conventions
 
