@@ -20,6 +20,8 @@ const DEFAULT_MODULES = {
   twitchPreview: true,
   // Limiteur de volume audio (anti-cri) sur Twitch : ON par defaut.
   twitchVolumeLimiter: true,
+  // Un seul onglet Twitch audible a la fois : ON par defaut.
+  twitchSoloAudio: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
   // Force la meilleure qualité dispo sur chaque vidéo YouTube : ON par defaut.
@@ -710,6 +712,182 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 // ===========================================================================
+// MODULE Twitch — Audio solo (un seul onglet Twitch audible)
+// ===========================================================================
+// Regle : parmi les onglets twitch.tv, un seul a le son — le "porteur". Des
+// qu'un onglet Twitch devient actif il prend le son et tous les autres onglets
+// Twitch sont mutes. Les onglets NON-Twitch ne sont jamais touches, et partir
+// sur un onglet hors Twitch ne change rien : le dernier onglet Twitch actif
+// reste le porteur et garde son son.
+//
+// Le porteur (storage.session) survit aux suspensions du service worker. On
+// memorise aussi les onglets qu'on a mutes NOUS : a l'extinction du module on
+// ne demute que ceux-la, un mute pose a la main n'est jamais leve.
+const TWSOLO_HOLDER_KEY = "twitchSoloTabId";
+const TWSOLO_MUTED_KEY = "twitchSoloMuted";
+const TWSOLO_MATCH = ["*://*.twitch.tv/*"];
+
+async function isTwitchSoloEnabled() {
+  const mods = await getModules();
+  return (await isMasterEnabled()) && !!mods.twitchSoloAudio;
+}
+
+function isTwitchUrl(url) {
+  try {
+    return /(^|\.)twitch\.tv$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isTabMuted(tab) {
+  return !!(tab.mutedInfo && tab.mutedInfo.muted);
+}
+
+async function getTwSoloHolder() {
+  const obj = await chrome.storage.session.get(TWSOLO_HOLDER_KEY);
+  const id = obj[TWSOLO_HOLDER_KEY];
+  return typeof id === "number" ? id : null;
+}
+async function getTwSoloMuted() {
+  const obj = await chrome.storage.session.get(TWSOLO_MUTED_KEY);
+  return new Set(Array.isArray(obj[TWSOLO_MUTED_KEY]) ? obj[TWSOLO_MUTED_KEY] : []);
+}
+function setTwSoloMuted(ids) {
+  return chrome.storage.session.set({ [TWSOLO_MUTED_KEY]: [...ids] });
+}
+
+async function setTabMuted(tabId, muted) {
+  try {
+    await chrome.tabs.update(tabId, { muted });
+    return true;
+  } catch {
+    return false; // onglet ferme entre-temps / non modifiable
+  }
+}
+
+// L'onglet en avant-plan : l'actif de la derniere fenetre NORMALE focalisee. On
+// ignore les fenetres "popup" (celle du module Masquer sur X, par exemple).
+async function getForegroundTab() {
+  try {
+    const win = await chrome.windows.getLastFocused({
+      populate: true,
+      windowTypes: ["normal"],
+    });
+    const tab = (win.tabs || []).find((t) => t.active);
+    if (tab && tab.id != null) return tab;
+  } catch {}
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true,
+  });
+  return tab && tab.id != null ? tab : null;
+}
+
+// Serialise les passages : onActivated + onFocusChanged + onUpdated tombent a
+// quelques ms d'intervalle et se marcheraient dessus sur l'etat memorise.
+let twSoloQueue = Promise.resolve();
+function scheduleTwSolo(fn) {
+  twSoloQueue = twSoloQueue.then(fn, fn);
+  return twSoloQueue;
+}
+
+async function applyTwitchSolo() {
+  if (!(await isTwitchSoloEnabled())) return;
+
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: TWSOLO_MATCH });
+  } catch (e) {
+    console.warn(TAG, "audio solo Twitch: query echec:", e.message);
+    return;
+  }
+  if (!tabs.length) return;
+
+  // Qui porte le son ? L'onglet Twitch en avant-plan s'il y en a un, sinon le
+  // porteur memorise tant qu'il existe encore.
+  const fg = await getForegroundTab();
+  const fgIsTwitch = !!(fg && isTwitchUrl(fg.url));
+  let holder = null;
+  if (fgIsTwitch) holder = fg.id;
+  else {
+    const stored = await getTwSoloHolder();
+    if (stored != null && tabs.some((t) => t.id === stored)) holder = stored;
+  }
+  // Aucun porteur connu (au demarrage, ou apres fermeture du precedent) : on
+  // adopte l'onglet qui produit deja du son plutot que de tout faire taire.
+  if (holder == null) {
+    const candidate =
+      tabs.find((t) => t.audible && !isTabMuted(t)) ||
+      tabs.find((t) => !isTabMuted(t));
+    if (!candidate) return; // tout est deja muet a la main : on ne force rien
+    holder = candidate.id;
+  }
+  await chrome.storage.session.set({ [TWSOLO_HOLDER_KEY]: holder });
+
+  const ours = await getTwSoloMuted();
+  const live = new Set(tabs.map((t) => t.id));
+  let changed = false;
+
+  for (const tab of tabs) {
+    if (tab.id === holder) {
+      if (ours.delete(tab.id)) changed = true;
+      // On ne rend le son que si l'utilisateur vient d'arriver sur cet onglet :
+      // ca demute aussi ce qu'il avait mute a la main (c'est le comportement
+      // attendu), mais sans defaire ce mute a chaque evenement quand il est
+      // ailleurs et que cet onglet n'est porteur que de memoire.
+      if (fgIsTwitch && isTabMuted(tab)) await setTabMuted(tab.id, false);
+    } else if (!isTabMuted(tab) && (await setTabMuted(tab.id, true))) {
+      ours.add(tab.id);
+      changed = true;
+    }
+  }
+  for (const id of [...ours]) {
+    if (!live.has(id)) {
+      ours.delete(id); // onglet ferme : plus rien a restaurer
+      changed = true;
+    }
+  }
+  if (changed) await setTwSoloMuted(ours);
+}
+
+// Extinction du module (ou de l'interrupteur maitre) : on rend le son.
+async function restoreTwitchSolo() {
+  const ours = await getTwSoloMuted();
+  if (!ours.size) return;
+  for (const id of ours) await setTabMuted(id, false);
+  await chrome.storage.session.remove(TWSOLO_MUTED_KEY);
+  console.log(TAG, "audio solo Twitch: son rendu a", ours.size, "onglet(s)");
+}
+
+chrome.tabs.onActivated.addListener(() => scheduleTwSolo(applyTwitchSolo));
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  // WINDOW_ID_NONE = Chrome perd le focus (alt-tab vers une autre appli) :
+  // on ne touche a rien, le porteur doit continuer a s'entendre.
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  scheduleTwSolo(applyTwitchSolo);
+});
+
+// Un onglet Twitch d'arriere-plan qui se remet a produire du son entre deux
+// changements d'onglet (retour de pub, stream qui demarre) est mute a la volee.
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (changeInfo.audible !== true || isTabMuted(tab)) return;
+  if (!isTwitchUrl(tab.url)) return;
+  scheduleTwSolo(applyTwitchSolo);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) =>
+  scheduleTwSolo(async () => {
+    const ours = await getTwSoloMuted();
+    if (ours.delete(tabId)) await setTwSoloMuted(ours);
+    if ((await getTwSoloHolder()) === tabId) {
+      await chrome.storage.session.remove(TWSOLO_HOLDER_KEY);
+    }
+  }),
+);
+
+// ===========================================================================
 // Wiring
 // ===========================================================================
 chrome.commands.onCommand.addListener(async (command) => {
@@ -745,6 +923,11 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   await syncRegistrations();
   await syncMuteMenu();
 
+  // Audio solo Twitch : vit dans le service worker, donc rien a (des)enregistrer
+  // — on applique ou on rend le son selon l'etat effectif du module.
+  if (await isTwitchSoloEnabled()) scheduleTwSolo(applyTwitchSolo);
+  else scheduleTwSolo(restoreTwitchSolo);
+
   // Plus rien a injecter si l'interrupteur maitre est OFF.
   if (!(await isMasterEnabled())) return;
 
@@ -774,11 +957,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
   await syncRegistrations();
   await syncMuteMenu();
+  if (await isTwitchSoloEnabled()) scheduleTwSolo(applyTwitchSolo);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await syncRegistrations();
   await syncMuteMenu();
+  if (await isTwitchSoloEnabled()) scheduleTwSolo(applyTwitchSolo);
 });
 
 console.log(TAG, "service worker demarre");

@@ -10,6 +10,7 @@ const DEFAULT_MODULES = {
   twitchAdsVaft: true,
   twitchPreview: true,
   twitchVolumeLimiter: true,
+  twitchSoloAudio: true,
   youtubeCustomSpeed: true,
   youtubeNoTranslation: true,
   youtubeBestQuality: true,

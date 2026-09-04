@@ -1,6 +1,6 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 14 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 16 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
 | Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
@@ -17,6 +17,7 @@ extension, avec un popup pour activer/désactiver chacun.
 | **Twitch — Anti-pub (vaft)**     | twitch.tv          | Bloque les pubs des lives (variante _vaft_ de [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions))                           |
 | **Twitch — Preview au survol**   | twitch.tv          | Preview vidéo en direct de la chaîne au survol d'un streamer dans les listes (sidebar, accueil, catégories, recherche) ; muette, flottante   |
 | **Twitch — Limiteur de volume**  | twitch.tv          | Plafonne les pics de volume (cris) sans toucher au son normal ; curseur de seuil en dB (0 = aucune limite), marche aussi en PiP              |
+| **Twitch — Audio solo**          | twitch.tv          | Un seul onglet Twitch audible à la fois : l'onglet actif prend le son, les autres sont mutés ; sur un onglet non-Twitch, le dernier onglet Twitch actif garde le son |
 | **YouTube — Vitesse perso**      | youtube.com        | Boutons `−` / `+` dans le lecteur pour régler la vitesse au-delà de 2x (jusqu'à 16x) ; clic sur le chiffre = retour à 1x                     |
 | **YouTube — Pas de traduction**  | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
 | **YouTube — Meilleure qualité**  | youtube.com        | Force automatiquement la plus haute résolution disponible (1080p, 1440p, 4K…) sur chaque vidéo, au lieu de la qualité « Auto »               |
@@ -81,6 +82,9 @@ trinitx-extensions/
 Les modules « content script » (X) sont enregistrés/retirés dynamiquement via
 `chrome.scripting.registerContentScripts()` selon les toggles. Le module PiP est
 piloté par les commandes clavier + `chrome.debugger`.
+Le module « Twitch — Audio solo » vit lui aussi dans `background.js` : il écoute
+`tabs.onActivated` / `windows.onFocusChanged` / `tabs.onUpdated` et pilote
+`chrome.tabs.update({ muted })`.
 
 ## Le module « Block en 1 clic »
 
