@@ -13,6 +13,10 @@ const DEFAULT_MODULES = {
   xQuickBlock: true,
   xHideSponsored: true,
   xDimTheme: true,
+  // Masque les bandes laterales de X (fil seul) : ON par defaut.
+  xFocusTimeline: true,
+  // Repare la mise en page figee de X (onglet charge en arriere-plan).
+  xLayoutRefresh: true,
   twitchNoSub: true,
   // Anti-pub Twitch (vaft) : ON par defaut.
   twitchAdsVaft: true,
@@ -134,6 +138,26 @@ const CONTENT_MODULES = {
     matches: ["*://x.com/*", "*://twitter.com/*"],
     world: "ISOLATED",
     runAt: "document_start",
+  },
+  // Masque la barre de navigation gauche et la colonne droite de X. CSS pur
+  // en visibility: hidden (pas display: none) pour ne pas recentrer le fil ;
+  // injecte a document_start pour eviter un flash des bandes laterales.
+  xFocusTimeline: {
+    id: "x-focus-timeline",
+    js: ["modules/x-focus-timeline/content.js"],
+    matches: ["*://x.com/*", "*://twitter.com/*"],
+    world: "ISOLATED",
+    runAt: "document_start",
+  },
+  // Force X a remesurer la largeur de ses colonnes quand l'onglet a ete
+  // charge ou redimensionne pendant qu'il etait cache (barre de gauche restee
+  // "en grand" + debordement horizontal). ISOLATED : ne touche que le DOM.
+  xLayoutRefresh: {
+    id: "x-layout-refresh",
+    js: ["modules/x-layout-refresh/content.js"],
+    matches: ["*://x.com/*", "*://twitter.com/*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
   },
   // Vitesse de lecture personnalisee. Monde MAIN : YouTube a decouple
   // l'element <video> de la lecture reelle, seul #movie_player.setPlaybackRate()
@@ -904,9 +928,230 @@ chrome.commands.onCommand.addListener(async (command) => {
   else if (command === "toggle-mute") handleToggleMute();
 });
 
+// --- Reparation manuelle de la mise en page de X (bouton du popup) --------
+// X garde parfois une largeur de mise en page obsolete (barre de navigation
+// restee "en grand" + debordement horizontal). Verifie sur le cas reel :
+// retrecir <html> ne suffit PAS, X pose sa largeur en dur et ne la recalcule
+// que sur un vrai changement du viewport. On essaie donc plusieurs leviers,
+// du moins genant au plus visible, et on s'arrete des que c'est repare.
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Ecart tolere entre la mise en page de X et la fenetre, en pixels.
+const X_LAYOUT_SLACK = 2;
+
+function isXUrl(url) {
+  return (
+    url.startsWith("https://x.com/") || url.startsWith("https://twitter.com/")
+  );
+}
+
+// Pages exclues de la reparation AUTOMATIQUE (le bouton du popup, lui, est un
+// geste explicite et marche partout). Le fil d'accueil est exclu a la demande.
+const X_LAYOUT_SKIP = ["/home"];
+
+function isXLayoutTarget(url) {
+  if (!isXUrl(url)) return false;
+  try {
+    return !X_LAYOUT_SKIP.includes(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+// Mesures prises dans la page : largeur de la fenetre, largeur de la barre de
+// navigation, debordement horizontal, et etat du module x-layout-refresh.
+async function measureXLayout(tabId) {
+  const [res] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const de = document.documentElement;
+      const banner = document.querySelector('header[role="banner"]');
+      const root = banner ? banner.parentElement : null;
+      const rootWidth = root ? root.getBoundingClientRect().width : 0;
+      return {
+        width: de.clientWidth,
+        inner: window.innerWidth,
+        over: Math.round(Math.max(de.scrollWidth, rootWidth) - de.clientWidth),
+        nav: Math.round(banner ? banner.getBoundingClientRect().width : 0),
+        // Pose par le content script : "absent" = module pas injecte ici.
+        module: de.dataset.xLayoutRefresh || "absent",
+      };
+    },
+  });
+  return (res && res.result) || null;
+}
+
+// 1. Evenement resize synthetique, dans le monde de la page : sans effet
+//    visuel si X l'ecoute, puisque la vraie largeur est deja la bonne.
+async function xNudgeResizeEvent(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: () => {
+      window.dispatchEvent(new Event("resize"));
+      window.dispatchEvent(new Event("orientationchange"));
+    },
+  });
+  await wait(350);
+}
+
+// 2. Aller-retour de zoom : change reellement la largeur du viewport en pixels
+//    CSS, donc produit un vrai resize. Le zoom revient a sa valeur d'origine.
+async function xNudgeZoom(tabId) {
+  const zoom = await chrome.tabs.getZoom(tabId);
+  await chrome.tabs.setZoom(tabId, zoom * 1.05);
+  await wait(250);
+  await chrome.tabs.setZoom(tabId, zoom);
+  await wait(350);
+}
+
+// 3. Fenetre elargie d'un pixel puis remise : le plus proche de l'aller-retour
+//    F11. Ignore si la fenetre est maximisee ou en plein ecran (la toucher la
+//    ferait sortir de cet etat).
+async function xNudgeWindow(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  const win = await chrome.windows.get(tab.windowId);
+  if (win.state !== "normal" || typeof win.width !== "number") return false;
+  await chrome.windows.update(win.id, { width: win.width - 1 });
+  await wait(250);
+  await chrome.windows.update(win.id, { width: win.width });
+  await wait(350);
+  return true;
+}
+
+// tabId absent -> onglet actif (bouton du popup) ; fourni -> l'onglet qui a
+// demande la reparation (module x-layout-refresh).
+async function fixXLayout(tabId) {
+  let tab;
+  if (tabId) tab = await chrome.tabs.get(tabId).catch(() => null);
+  else [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const url = tab && tab.url ? tab.url : "";
+  if (!isXUrl(url)) return { ok: false, reason: "pas-x" };
+
+  const before = await measureXLayout(tab.id);
+  if (!before) return { ok: false, reason: "mesure-impossible" };
+  const zoom = await chrome.tabs.getZoom(tab.id).catch(() => 1);
+
+  const attempts = [
+    ["evenement", () => xNudgeResizeEvent(tab.id)],
+    ["zoom", () => xNudgeZoom(tab.id)],
+    ["fenetre", () => xNudgeWindow(tab.id)],
+  ];
+
+  let after = before;
+  let via = "aucun";
+  if (before.over > X_LAYOUT_SLACK) {
+    for (const [name, run] of attempts) {
+      let applied = true;
+      try {
+        applied = (await run()) !== false;
+      } catch (e) {
+        console.warn(TAG, "reparation X", name, "echec:", e.message);
+        applied = false;
+      }
+      if (!applied) continue;
+      after = (await measureXLayout(tab.id)) || after;
+      if (after.over <= X_LAYOUT_SLACK) {
+        via = name;
+        break;
+      }
+      via = `${name} sans effet`;
+    }
+  }
+
+  return {
+    ok: true,
+    via,
+    zoom: Math.round(zoom * 100),
+    width: before.width,
+    module: before.module,
+    navBefore: before.nav,
+    navAfter: after.nav,
+    before: before.over,
+    after: after.over,
+  };
+}
+
+// --- Onglets X ouverts en arriere-plan ------------------------------------
+// La cause du decalage : la page est rendue au zoom 100 % puis le zoom de
+// x.com est applique a l'affichage, sans que X ne remesure (1150 px x 1,1 =
+// 1265 px, la largeur qu'il gardait). Corriger au moment ou l'onglet s'affiche
+// se voit forcement. On le fait donc pendant qu'il est encore cache, avec les
+// seuls leviers invisibles : l'onglet est deja droit quand on arrive dessus.
+const X_PREPARE_DELAY = 500;
+
+async function prepareHiddenXTab(tabId) {
+  const mods = await getModules();
+  if (!mods.xLayoutRefresh || !(await isMasterEnabled())) return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  // L'utilisateur est arrive dessus entre-temps : ne rien faire sous ses yeux,
+  // le module dans la page prendra le relais. L'URL est revue ici car elle a pu
+  // changer depuis le declenchement.
+  if (!tab || tab.active || !isXLayoutTarget(tab.url || "")) return;
+  try {
+    await xNudgeResizeEvent(tabId);
+    await xNudgeZoom(tabId);
+    const after = await measureXLayout(tabId);
+    console.log(
+      TAG,
+      "onglet X prepare en arriere-plan:",
+      tabId,
+      after ? `barre ${after.nav}px, debordement ${after.over}px` : "",
+    );
+  } catch (e) {
+    console.warn(TAG, "preparation onglet X echec:", e.message);
+  }
+}
+
+// Mieux que reparer : prendre les devants. Un aller-retour de zoom des le
+// debut du chargement force Chrome a appliquer le zoom de x.com avant que X ne
+// pose sa mise en page — il demarre alors sur la bonne largeur et il n'y a plus
+// rien a corriger. Rien n'est encore affiche a ce stade, donc rien ne se voit.
+const xTabsPrimed = new Set();
+
+async function primeXTabZoom(tabId) {
+  const mods = await getModules();
+  if (!mods.xLayoutRefresh || !(await isMasterEnabled())) return;
+  try {
+    await xNudgeZoom(tabId);
+  } catch (e) {
+    console.warn(TAG, "amorce zoom onglet X echec:", e.message);
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const url = changeInfo.url || (tab && tab.url) || "";
+  if (!isXLayoutTarget(url) || (tab && tab.active)) return;
+
+  if (changeInfo.status === "loading" && !xTabsPrimed.has(tabId)) {
+    xTabsPrimed.add(tabId);
+    // Une seule amorce par navigation : "loading" peut se repeter.
+    setTimeout(() => xTabsPrimed.delete(tabId), 10000);
+    primeXTabZoom(tabId);
+    return;
+  }
+
+  if (changeInfo.status !== "complete") return;
+  // Filet si l'amorce n'a pas suffi : laisser X poser son premier rendu, puis
+  // le faire remesurer pendant que l'onglet est encore cache.
+  setTimeout(() => prepareHiddenXTab(tabId), X_PREPARE_DELAY);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => xTabsPrimed.delete(tabId));
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "reload-tabs") {
     reloadWindowTabs().then(sendResponse);
+    return true; // reponse asynchrone
+  }
+  if (msg && msg.type === "fix-x-layout") {
+    // Depuis un content script, on repare SON onglet ; depuis le popup, il n'y
+    // a pas d'onglet emetteur et on prend l'onglet actif.
+    const from = _sender && _sender.tab ? _sender.tab.id : undefined;
+    fixXLayout(from)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, reason: e.message }));
     return true; // reponse asynchrone
   }
 });

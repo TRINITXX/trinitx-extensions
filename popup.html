@@ -220,6 +220,54 @@
         </div>
       </section>
 
+      <!-- X — Fil seul -->
+      <section class="module" data-module="xFocusTimeline">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>X — Fil seul</h2>
+            <p>
+              Masque la navigation de gauche et la colonne de droite
+              (recherche, tendances, suggestions) sans déplacer le fil, qui
+              garde exactement sa position et sa largeur. Une pastille discrète
+              dans l'angle haut-droit réaffiche tout le temps d'une visite.
+              Recharge l'onglet après activation.
+            </p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="xFocusTimeline" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- X — Mise en page figée -->
+      <section class="module" data-module="xLayoutRefresh">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>X — Mise en page figée</h2>
+            <p>
+              Un onglet X ouvert en arrière-plan est rendu au zoom 100 % puis
+              zoomé à l'affichage sans que X ne remesure : barre de gauche
+              restée « en grand » et défilement horizontal. L'onglet est remis
+              droit pendant qu'il est encore caché, donc ça ne se voit pas. Le
+              fil d'accueil (<code>x.com/home</code>) n'est jamais touché
+              automatiquement ; le bouton, lui, répare l'onglet courant quel
+              qu'il soit.
+            </p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="xLayoutRefresh" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="module-extra">
+          <button type="button" id="fix-layout-btn" class="btn">
+            ⟳ Réparer maintenant
+          </button>
+          <p class="fix-result" id="fix-layout-result"></p>
+        </div>
+      </section>
+
       <!-- Twitch — VOD sub-only -->
       <section class="module" data-module="twitchNoSub">
         <div class="module-row">

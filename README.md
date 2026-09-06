@@ -1,6 +1,6 @@
 # TRINITX Extensions perso
 
-Suite perso regroupant 16 modules + 1 action utilitaire dans une seule
+Suite perso regroupant 17 modules + 1 action utilitaire dans une seule
 extension, avec un popup pour activer/désactiver chacun.
 
 | Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
@@ -13,6 +13,8 @@ extension, avec un popup pour activer/désactiver chacun.
 | **X — Masquer les partenariats** | x.com              | Cache les tweets marqués « Partenariat rémunéré » (contenus sponsorisés) et la suite du thread quand l'auteur enchaîne des réponses          |
 | **X — Masquer par pays**         | x.com              | Masque les tweets des comptes basés dans les pays de ta liste (provenance « About this account » de X) ; liste par défaut : Afrique, Inde, Pakistan |
 | **X — Thème Dim**                | x.com, twitter.com | Restaure le thème bleu « Dim » par-dessus le mode sombre actuel (fond, textes, bordures, scrollbar)                                          |
+| **X — Fil seul**                 | x.com, twitter.com | Masque la navigation de gauche et la colonne de droite (recherche, tendances, suggestions) sans déplacer le fil ; pastille discrète en haut à droite pour tout réafficher |
+| **X — Mise en page figée**       | x.com, twitter.com | Un onglet X ouvert en arrière-plan est rendu au zoom 100 % puis zoomé à l'affichage sans que X ne remesure (barre de gauche restée « en grand », défilement horizontal) : l'onglet est remis droit tant qu'il est caché (sauf `x.com/home`, jamais touché) ; bouton « Réparer maintenant » dans le popup |
 | **Twitch — VOD sub-only**        | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
 | **Twitch — Anti-pub (vaft)**     | twitch.tv          | Bloque les pubs des lives (variante _vaft_ de [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions))                           |
 | **Twitch — Preview au survol**   | twitch.tv          | Preview vidéo en direct de la chaîne au survol d'un streamer dans les listes (sidebar, accueil, catégories, recherche) ; muette, flottante   |
@@ -61,6 +63,8 @@ trinitx-extensions/
     │   ├── countries.js             # liste canonique + défauts (partagée popup/content)
     │   └── content.js               # scan + AboutAccountQuery (API interne X) + cache IndexedDB
     ├── x-dim-theme/content.js     # monde ISOLATED, restaure le thème Dim (CSS)
+    ├── x-focus-timeline/content.js # monde ISOLATED, masque les bandes latérales (CSS, visibility)
+    ├── x-layout-refresh/content.js # monde ISOLATED, force X à remesurer la fenêtre
     ├── youtube-custom-speed/content.js  # monde ISOLATED, widget vitesse perso
     ├── youtube-best-quality/main.js     # monde MAIN, force la meilleure qualité (API du lecteur)
     ├── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)

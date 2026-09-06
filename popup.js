@@ -6,6 +6,8 @@ const DEFAULT_MODULES = {
   xQuickBlock: true,
   xHideSponsored: true,
   xDimTheme: true,
+  xFocusTimeline: true,
+  xLayoutRefresh: true,
   twitchNoSub: true,
   twitchAdsVaft: true,
   twitchPreview: true,
@@ -100,6 +102,45 @@ document.addEventListener("DOMContentLoaded", async () => {
       () => chrome.storage.local.set({ [LIMITER_KEY]: v }),
       120,
     );
+  });
+
+  // --- X : reparer la mise en page a la demande ------------------------------
+  // Filet quand la correction automatique n'a pas pris : meme geste que le
+  // module (retrecir <html> d'un pixel), applique sur l'onglet X actif.
+  const fixLayoutBtn = document.getElementById("fix-layout-btn");
+  const fixLayoutResult = document.getElementById("fix-layout-result");
+  const showFix = (text) => {
+    if (fixLayoutResult) fixLayoutResult.textContent = text;
+    showStatus(text);
+  };
+  fixLayoutBtn.addEventListener("click", async () => {
+    fixLayoutBtn.disabled = true;
+    try {
+      showFix("…");
+      const res = await chrome.runtime.sendMessage({ type: "fix-x-layout" });
+      if (!res || !res.ok) {
+        showFix(
+          res && res.reason === "pas-x"
+            ? "Ouvre d'abord un onglet X."
+            : `Erreur : ${(res && res.reason) || "inconnue"}`,
+        );
+      } else {
+        // Diagnostic complet : il dit d'un coup d'oeil si le module tourne, si
+        // la mise en page depasse la fenetre, et si le geste a fait effet.
+        showFix(
+          [
+            `fenêtre ${res.width}px · zoom ${res.zoom}% · module ${res.module}`,
+            `barre ${res.navBefore}px → ${res.navAfter}px`,
+            `débordement ${res.before}px → ${res.after}px`,
+            `levier ${res.via}`,
+          ].join(" · "),
+        );
+      }
+    } catch (e) {
+      showFix(`Erreur : ${e.message}`);
+    } finally {
+      fixLayoutBtn.disabled = false;
+    }
   });
 
   // --- Recharger les onglets -------------------------------------------------
