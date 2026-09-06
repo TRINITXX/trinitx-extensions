@@ -1,5 +1,5 @@
-// X — Mise en page figee — detecte une mise en page restee plus large que la
-// fenetre et force X a remesurer, comme le fait un aller-retour F11.
+// X — Mise en page figee — remet la mise en page a la largeur de la fenetre
+// quand X est reste sur une mesure obsolete, sans que ca se voie.
 (() => {
   // Guard : eviter une double execution si le module est re-injecte (toggle).
   if (window.__xLayoutRefreshLoaded) return;
@@ -9,22 +9,21 @@
 
   // Pourquoi ce module existe
   // -------------------------
-  // X ne pilote PAS la largeur de ses colonnes en CSS : ses seules media
-  // queries s'arretent a 600px. Au-dela, la largeur des trois colonnes est
-  // calculee en JS a partir de la largeur mesuree du conteneur racine.
+  // X ne pilote pas la largeur de ses colonnes en CSS (ses seules media queries
+  // s'arretent a 600px) : il la calcule en JS et la pose EN DUR sur son
+  // conteneur. Avec un zoom de page sur x.com, un onglet ouvert en arriere-plan
+  // est d'abord mis en page au zoom 100 %, puis Chrome applique le zoom — sans
+  // que X ne remesure. Mesure sur le cas reel : fenetre 1150 px, mise en page
+  // restee a 1265 px (1150 x 1,1), barre de navigation a 275 px "en grand" au
+  // lieu de 124 px, et defilement horizontal.
   //
-  // Un onglet cache (ou une fenetre entierement recouverte) ne rend plus rien :
-  // si la page se charge — ou si la fenetre change de taille — pendant ce
-  // temps, X reste sur l'ancienne mesure. Symptome verifie en reproduisant le
-  // cas a la main : conteneur racine a 1450px dans une fenetre de 1150px ->
-  // barre de navigation a 274px ("en grand", libelles + gros bouton Poster) au
-  // lieu de 124px, et barre de defilement horizontale.
-  //
-  // Le correctif ne peut PAS se faire depuis la page : verifie sur le cas reel,
-  // retrecir <html> d'un pixel ne change rien, X pose sa largeur en dur et ne la
-  // recalcule que sur un vrai changement du viewport. C'est le service worker
-  // qui applique le geste (evenement resize, puis aller-retour de zoom, puis
-  // aller-retour d'un pixel sur la fenetre), d'ou le message "fix-x-layout".
+  // Le correctif agit sur le DOM et sur lui seul. Toutes les tentatives passant
+  // par le navigateur (chrome.tabs.setZoom, redimensionnement de fenetre)
+  // marchaient mais finissaient toujours par se voir a l'ecran, alors meme que
+  // le zoom applique par Chrome, lui, ne se voit pas. Ici on change la largeur
+  // du conteneur que X observe, le temps de deux frames : son observateur voit
+  // le changement, recalcule ses colonnes, et on relache — la largeur qu'il
+  // vient de poser lui-meme est desormais la bonne.
 
   // Pages laissees tranquilles a la demande. X etant une application a une
   // seule page, l'URL change sans rechargement : on la revoit a chaque controle
@@ -35,35 +34,17 @@
   // Ecart tolere entre la mise en page de X et la fenetre, en pixels.
   const SLACK = 2;
   // Delai minimum entre deux corrections.
-  const COOLDOWN = 800;
+  const COOLDOWN = 250;
   // Au-dela, on arrete d'insister : le debordement vient d'ailleurs.
   const MAX_TRIES = 3;
 
-  let lastNudge = 0;
+  let lastFix = 0;
   let tries = 0;
   let fixes = 0;
   let observed = null;
   let observer = null;
 
   document.documentElement.dataset.xLayoutRefresh = "actif";
-
-  // Conteneur qui porte la largeur de mise en page de X (parent direct des
-  // trois colonnes). Sa largeur vaut normalement celle de la fenetre.
-  function layoutRoot() {
-    const banner = document.querySelector('header[role="banner"]');
-    return banner ? banner.parentElement : null;
-  }
-
-  // De combien la mise en page de X depasse-t-elle la fenetre ?
-  // Deux mesures complementaires : le debordement horizontal global (les
-  // colonnes de X ont des largeurs calculees en JS et posees en dur, c'est
-  // elles qui depassent) et la largeur du conteneur racine.
-  function overflowWidth() {
-    const de = document.documentElement;
-    const root = layoutRoot();
-    const rootWidth = root ? root.getBoundingClientRect().width : 0;
-    return Math.max(de.scrollWidth, rootWidth) - de.clientWidth;
-  }
 
   // Attente d'une frame, avec un secours : dans un onglet en arriere-plan
   // requestAnimationFrame est gele et ne rendrait jamais la main.
@@ -79,106 +60,183 @@
       setTimeout(finish, 250);
     });
 
-  async function nudge(reason) {
-    lastNudge = Date.now();
-    let res;
-    try {
-      res = await chrome.runtime.sendMessage({ type: "fix-x-layout" });
-    } catch (e) {
-      console.log(TAG, "reparation indisponible:", e.message);
-      return;
+  // Conteneur qui porte la largeur de mise en page de X (parent direct des
+  // trois colonnes). Sa largeur vaut normalement celle de la fenetre.
+  function layoutRoot() {
+    const banner = document.querySelector('header[role="banner"]');
+    return banner ? banner.parentElement : null;
+  }
+
+  // De combien la mise en page depasse-t-elle la fenetre ?
+  function overflowWidth() {
+    const de = document.documentElement;
+    const root = layoutRoot();
+    const rootWidth = root ? root.getBoundingClientRect().width : 0;
+    return Math.max(de.scrollWidth, rootWidth) - de.clientWidth;
+  }
+
+  // Les elements trop larges, en partant du conteneur de X. On ne descend que
+  // de quelques niveaux : c'est la que X pose ses largeurs, et ratisser toute
+  // la page couterait cher pour rien.
+  function tooWideElements() {
+    const target = document.documentElement.clientWidth;
+    const root = layoutRoot();
+    if (!root) return [];
+    const found = [];
+    let level = [root];
+    for (let depth = 0; depth < 3 && level.length; depth += 1) {
+      const next = [];
+      for (const node of level) {
+        if (node.getBoundingClientRect().width > target + SLACK) {
+          found.push(node);
+          next.push(...node.children);
+        }
+      }
+      level = next;
     }
-    if (!res || !res.ok) {
-      console.log(TAG, "reparation refusee:", (res && res.reason) || "inconnue");
-      return;
+    return found;
+  }
+
+  // Le geste : imposer une largeur au conteneur que X observe, le temps de deux
+  // frames, puis relacher. L'observateur de X voit deux changements et recalcule
+  // ses colonnes — d'abord sur la largeur imposee, puis sur la vraie.
+  //
+  // On force volontairement une valeur FRANCHEMENT differente (et non la
+  // largeur cible) : c'est le changement qui declenche le recalcul, et un ecart
+  // net evite qu'un arrondi ne l'escamote. Les elements deja trop larges sont
+  // ramenes en meme temps, au cas ou X ne toucherait pas a tout.
+  async function reclaimWidth() {
+    const target = document.documentElement.clientWidth;
+    const root = layoutRoot();
+    const nodes = new Set(tooWideElements());
+    if (root) nodes.add(root);
+    if (nodes.size === 0) return false;
+
+    const touched = [...nodes].map((el) => [
+      el,
+      el.style.getPropertyValue("width"),
+      el.style.getPropertyPriority("width"),
+    ]);
+    for (const [el] of touched) {
+      const forced = el === root ? Math.max(320, target - 120) : target;
+      el.style.setProperty("width", `${forced}px`, "important");
     }
-    lastNudge = Date.now();
-    if (res.after > SLACK) {
-      console.log(
-        TAG,
-        `correction insuffisante (${res.after}px restants, via ${res.via})`,
-        reason,
-      );
-      return;
+    await nextFrame();
+    await nextFrame();
+    for (const [el, value, priority] of touched) {
+      if (value) el.style.setProperty("width", value, priority);
+      else el.style.removeProperty("width");
+    }
+    await nextFrame();
+    await nextFrame();
+    return true;
+  }
+
+  // Aucun secours par le zoom ici, meme masque : verifie a l'usage, le geste du
+  // service worker (chrome.tabs.setZoom) se voit toujours d'une facon ou d'une
+  // autre. Il ne reste accessible que par le bouton du popup, ou l'utilisateur
+  // le declenche sciemment. Si la reprise DOM ne suffit pas, on renonce.
+  async function repair(reason) {
+    if (onSkippedPage()) return true;
+    const over = overflowWidth();
+    if (over <= SLACK) {
+      tries = 0;
+      return true;
+    }
+    if (Date.now() - lastFix < COOLDOWN) return false;
+    if (tries >= MAX_TRIES) {
+      document.documentElement.dataset.xLayoutRefresh = "echec";
+      return false;
+    }
+    tries += 1;
+    lastFix = Date.now();
+    console.log(TAG, `mise en page trop large de ${Math.round(over)}px`, reason);
+
+    await reclaimWidth();
+    if (overflowWidth() > SLACK) {
+      const left = Math.round(overflowWidth());
+      console.log(TAG, `correction insuffisante (${left}px)`);
+      return false;
     }
     tries = 0;
     fixes += 1;
     document.documentElement.dataset.xLayoutRefresh = String(fixes);
-    console.log(TAG, `mise en page recalculee via ${res.via} (${reason})`);
+    console.log(TAG, `mise en page recalculee (${reason})`);
+    return true;
   }
 
-  function check(reason) {
-    if (document.hidden || onSkippedPage()) return;
-    const over = overflowWidth();
-    if (over <= SLACK) {
-      tries = 0;
-      return;
+  // Aucun cache, aucun masquage : demande explicite de l'utilisateur. Si la
+  // reprise ne suffit pas, la page reste telle quelle plutot que de clignoter.
+  // Duree maximale pendant laquelle on garde la main au premier affichage.
+  const SETTLE_MAX = 800;
+  // Nombre de frames sans debordement avant de considerer la page stable.
+  const SETTLE_CALM = 4;
+
+  // Premier affichage : le decalage peut n'apparaitre qu'apres quelques frames,
+  // conclure des la premiere mesure donnerait un faux "rien a corriger".
+  async function settle() {
+    const deadline = Date.now() + SETTLE_MAX;
+    let calm = 0;
+    while (Date.now() < deadline) {
+      await nextFrame();
+      if (overflowWidth() > SLACK) {
+        calm = 0;
+        const fixed = await repair("premier affichage");
+        if (!fixed && tries >= MAX_TRIES) break;
+        continue;
+      }
+      calm += 1;
+      if (calm >= SETTLE_CALM) break;
     }
-    if (Date.now() - lastNudge < COOLDOWN) return;
-    if (tries >= MAX_TRIES) {
-      document.documentElement.dataset.xLayoutRefresh = "echec";
-      return;
-    }
-    tries += 1;
-    console.log(TAG, `mise en page trop large de ${Math.round(over)}px`, reason);
-    nudge(reason);
   }
 
-  // Surveillance principale : l'observateur se declenche des que le conteneur
-  // racine change de largeur, donc des que X se remet a jour... ou pas.
+  // Surveillance : l'observateur se declenche des que le conteneur change de
+  // largeur, donc des que X se remet a jour... ou pas.
   function watch() {
     const root = layoutRoot();
     if (!root || root === observed) return;
     if (observer) observer.disconnect();
-    observer = new ResizeObserver(() => check("largeur du conteneur"));
+    observer = new ResizeObserver(() => {
+      if (!document.hidden) repair("largeur du conteneur");
+    });
     observer.observe(root);
     observer.observe(document.documentElement);
     observed = root;
-    check("conteneur observe");
   }
 
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden) return;
-    // Laisser Chrome remettre le viewport a jour avant de mesurer.
-    await nextFrame();
     watch();
-    check("retour sur l'onglet");
-    setTimeout(() => check("retour sur l'onglet (differe)"), 600);
+    await settle();
   });
 
-  // Un vrai redimensionnement remet le compteur a zero : c'est une nouvelle
-  // situation. Mais deux des trois leviers de reparation (zoom, fenetre)
-  // produisent eux-memes un resize — le recompter relancerait une boucle.
-  function resetTries() {
-    if (Date.now() - lastNudge > 2000) tries = 0;
-  }
-
   window.addEventListener("resize", () => {
-    resetTries();
-    setTimeout(() => check("redimensionnement"), 300);
+    // Un vrai redimensionnement est une situation neuve : on redonne sa chance
+    // au module, sauf si c'est notre propre correction qui l'a provoque.
+    if (Date.now() - lastFix > 1500) tries = 0;
+    setTimeout(() => repair("redimensionnement"), 250);
   });
 
   window.addEventListener("pageshow", () => {
-    resetTries();
-    setTimeout(() => check("affichage de la page"), 300);
+    setTimeout(() => repair("affichage de la page"), 250);
   });
 
-  // Filet : X monte son arborescence en plusieurs temps et la remplace parfois
-  // au fil de la navigation. Ce controle rattache l'observateur et rattrape un
-  // debordement apparu en dehors de tout evenement.
+  // Filet : X remplace parfois son arborescence au fil de la navigation. Ce
+  // controle rattache l'observateur et rattrape un debordement passe entre les
+  // mailles, sans jamais recourir au secours visible.
   setInterval(() => {
     if (document.hidden) return;
     watch();
-    check("controle periodique");
+    repair("controle periodique");
   }, 4000);
 
-  // Au chargement, X monte son arborescence en plusieurs temps : on repasse
-  // plusieurs fois plutot qu'une seule, sinon on mesure trop tot.
+  // X monte son arborescence en plusieurs temps : on repasse plutot qu'une
+  // seule fois, sinon on mesure trop tot.
   watch();
-  for (const delay of [300, 1000, 2000, 4000]) {
+  for (const delay of [300, 1000, 2500]) {
     setTimeout(() => {
       watch();
-      check("chargement");
+      repair("chargement");
     }, delay);
   }
 

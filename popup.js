@@ -18,6 +18,7 @@ const DEFAULT_MODULES = {
   youtubeBestQuality: true,
   xMuteSelection: true,
   xHideByCountry: false,
+  flagEmoji: true,
 };
 
 function showStatus(msg) {

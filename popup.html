@@ -248,11 +248,11 @@
             <p>
               Un onglet X ouvert en arrière-plan est rendu au zoom 100 % puis
               zoomé à l'affichage sans que X ne remesure : barre de gauche
-              restée « en grand » et défilement horizontal. L'onglet est remis
-              droit pendant qu'il est encore caché, donc ça ne se voit pas. Le
-              fil d'accueil (<code>x.com/home</code>) n'est jamais touché
-              automatiquement ; le bouton, lui, répare l'onglet courant quel
-              qu'il soit.
+              restée « en grand » et défilement horizontal. L'onglet est
+              rechargé pendant qu'il est encore en arrière-plan : rien ne bouge
+              à l'écran et la page est déjà droite à l'arrivée. Le fil d'accueil
+              (<code>x.com/home</code>) n'est jamais touché automatiquement ;
+              le bouton, lui, répare l'onglet courant quel qu'il soit.
             </p>
           </div>
           <label class="switch">
@@ -450,6 +450,26 @@
             class="action"
             >Basé sur YouTube-No-Translation (YouG-o) →</a
           >
+        </div>
+      </section>
+
+      <!-- Drapeaux emoji -->
+      <section class="module" data-module="flagEmoji">
+        <div class="module-row">
+          <div class="module-info">
+            <h2>Drapeaux emoji</h2>
+            <p>
+              Windows ne dessine pas les drapeaux : Chrome affiche les deux
+              lettres du pays (<code>FR</code>, <code>MA</code>) à la place.
+              Le module charge une police Twemoji limitée aux drapeaux et la
+              met uniquement sur ces caractères, sur tous les sites. Le reste
+              de la typographie n'est pas touché.
+            </p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-module="flagEmoji" />
+            <span class="slider"></span>
+          </label>
         </div>
       </section>
     </main>

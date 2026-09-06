@@ -35,6 +35,8 @@ const DEFAULT_MODULES = {
   // Masquer les tweets par pays d'origine : OFF par defaut (genere du trafic
   // API en arriere-plan -> opt-in volontaire).
   xHideByCountry: false,
+  // Repare les drapeaux emoji affiches en lettres (Windows) : ON par defaut.
+  flagEmoji: true,
 };
 
 // Modules a base de content scripts (enregistres seulement si actives)
@@ -191,6 +193,17 @@ const CONTENT_MODULES = {
     world: "ISOLATED",
     runAt: "document_start",
     allFrames: true,
+  },
+  // Drapeaux emoji : Windows n'a pas les glyphes, Chrome n'embarque pas de
+  // police de secours -> "FR" au lieu du drapeau. Tous les sites, ISOLATED :
+  // charge une police Twemoji limitee aux drapeaux et encapsule chaque
+  // drapeau dans un <span> (le reste de la typographie n'est pas touche).
+  flagEmoji: {
+    id: "flag-emoji",
+    js: ["modules/flag-emoji/content.js"],
+    matches: ["http://*/*", "https://*/*"],
+    world: "ISOLATED",
+    runAt: "document_idle",
   },
 };
 
@@ -996,14 +1009,53 @@ async function xNudgeResizeEvent(tabId) {
   await wait(350);
 }
 
-// 2. Aller-retour de zoom : change reellement la largeur du viewport en pixels
-//    CSS, donc produit un vrai resize. Le zoom revient a sa valeur d'origine.
-async function xNudgeZoom(tabId) {
-  const zoom = await chrome.tabs.getZoom(tabId);
-  await chrome.tabs.setZoom(tabId, zoom * 1.05);
-  await wait(250);
-  await chrome.tabs.setZoom(tabId, zoom);
-  await wait(350);
+// 2. Aller-retour de zoom, CONFINE a l'onglet vise.
+//
+//    Piege verifie sur le cas reel : chrome.tabs.setZoom porte par defaut sur
+//    l'ORIGINE entiere (scope "per-origin"). Bouger le zoom d'un onglet cache
+//    faisait donc sursauter la page d'accueil affichee a cote — visible meme a
+//    0,2 %. Reduire l'ecart ne reglait rien, c'etait la portee le probleme.
+//
+//    On bascule donc l'onglet en scope "per-tab" le temps du geste : plus rien
+//    n'en sort, les autres onglets x.com ne bougent pas d'un pixel. Le scope
+//    d'origine est restaure ensuite, ce qui rend a l'onglet le zoom de x.com et
+//    le fait de nouveau suivre les changements de zoom faits ailleurs.
+//
+//    Comme le geste ne se voit plus, l'ecart n'a plus besoin d'etre timide : un
+//    pas franc est plus sur de declencher le remesurage.
+const X_ZOOM_STEP = 1.05;
+
+// Les allers-retours sont serialises : deux qui se chevauchent liraient le zoom
+// deja decale comme valeur "d'origine" et la laisseraient derriver a chaque
+// passage. Le finally garantit la restauration meme en cas d'erreur.
+let xZoomQueue = Promise.resolve();
+
+function xNudgeZoom(tabId, step = X_ZOOM_STEP) {
+  const run = xZoomQueue.then(async () => {
+    const settings = await chrome.tabs.getZoomSettings(tabId);
+    const zoom = await chrome.tabs.getZoom(tabId);
+    try {
+      await chrome.tabs.setZoomSettings(tabId, {
+        mode: "automatic",
+        scope: "per-tab",
+      });
+      await chrome.tabs.setZoom(tabId, zoom * step);
+      await wait(100);
+      await chrome.tabs.setZoom(tabId, zoom);
+      await wait(100);
+    } finally {
+      // Remettre le scope d'origine reapplique le zoom per-origin a ce seul
+      // onglet : un dernier changement de largeur, toujours confine.
+      await chrome.tabs.setZoomSettings(tabId, {
+        mode: settings.mode,
+        scope: settings.scope,
+      });
+      await wait(120);
+    }
+  });
+  // La file continue meme si celui-ci echoue ; l'appelant, lui, voit l'erreur.
+  xZoomQueue = run.catch(() => {});
+  return run;
 }
 
 // 3. Fenetre elargie d'un pixel puis remise : le plus proche de l'aller-retour
@@ -1022,7 +1074,12 @@ async function xNudgeWindow(tabId) {
 
 // tabId absent -> onglet actif (bouton du popup) ; fourni -> l'onglet qui a
 // demande la reparation (module x-layout-refresh).
-async function fixXLayout(tabId) {
+//
+// quiet : reparation automatique, declenchee depuis la page — donc sur un
+// onglet que l'utilisateur a forcement sous les yeux. Le redimensionnement de
+// la fenetre est alors exclu : il bougerait toute la fenetre. Le bouton du
+// popup, lui, est un geste explicite et garde tous ses leviers.
+async function fixXLayout(tabId, quiet = false) {
   let tab;
   if (tabId) tab = await chrome.tabs.get(tabId).catch(() => null);
   else [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1033,11 +1090,16 @@ async function fixXLayout(tabId) {
   if (!before) return { ok: false, reason: "mesure-impossible" };
   const zoom = await chrome.tabs.getZoom(tab.id).catch(() => 1);
 
-  const attempts = [
-    ["evenement", () => xNudgeResizeEvent(tab.id)],
-    ["zoom", () => xNudgeZoom(tab.id)],
-    ["fenetre", () => xNudgeWindow(tab.id)],
-  ];
+  // En mode quiet la page est masquee pendant l'operation : chaque milliseconde
+  // est du fond uni a l'ecran, on va donc droit au levier qui marche. Le
+  // bouton, lui, peut se permettre d'essayer le plus discret d'abord.
+  const attempts = quiet
+    ? [["zoom", () => xNudgeZoom(tab.id)]]
+    : [
+        ["evenement", () => xNudgeResizeEvent(tab.id)],
+        ["zoom", () => xNudgeZoom(tab.id)],
+        ["fenetre", () => xNudgeWindow(tab.id)],
+      ];
 
   let after = before;
   let via = "aucun";
@@ -1074,71 +1136,55 @@ async function fixXLayout(tabId) {
 }
 
 // --- Onglets X ouverts en arriere-plan ------------------------------------
-// La cause du decalage : la page est rendue au zoom 100 % puis le zoom de
-// x.com est applique a l'affichage, sans que X ne remesure (1150 px x 1,1 =
-// 1265 px, la largeur qu'il gardait). Corriger au moment ou l'onglet s'affiche
-// se voit forcement. On le fait donc pendant qu'il est encore cache, avec les
-// seuls leviers invisibles : l'onglet est deja droit quand on arrive dessus.
-const X_PREPARE_DELAY = 500;
+// Constat verifie avec l'utilisateur : un simple F5 remet la page droite.
+// Recharger l'onglet PENDANT qu'il est encore en arriere-plan est donc la seule
+// correction vraiment invisible — rien ne bouge a l'ecran et on arrive sur une
+// page deja juste. Tout ce qui a ete essaye avant se voyait (aller-retour de
+// zoom, redimensionnement de fenetre) ou ne suffisait pas (evenement resize,
+// reprise de la largeur en DOM).
+const X_RELOAD_DELAY = 400;
+
+// Un onglet n'est traite qu'une fois dans sa vie : sans ca, le rechargement
+// declencherait un nouveau "complete", donc un nouveau rechargement.
+const xTabsHandled = new Set();
 
 async function prepareHiddenXTab(tabId) {
+  if (xTabsHandled.has(tabId)) return;
   const mods = await getModules();
   if (!mods.xLayoutRefresh || !(await isMasterEnabled())) return;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  // L'utilisateur est arrive dessus entre-temps : ne rien faire sous ses yeux,
-  // le module dans la page prendra le relais. L'URL est revue ici car elle a pu
-  // changer depuis le declenchement.
+  // Arrive dessus entre-temps : un rechargement se verrait, on renonce.
   if (!tab || tab.active || !isXLayoutTarget(tab.url || "")) return;
-  try {
-    await xNudgeResizeEvent(tabId);
-    await xNudgeZoom(tabId);
-    const after = await measureXLayout(tabId);
-    console.log(
-      TAG,
-      "onglet X prepare en arriere-plan:",
-      tabId,
-      after ? `barre ${after.nav}px, debordement ${after.over}px` : "",
-    );
-  } catch (e) {
-    console.warn(TAG, "preparation onglet X echec:", e.message);
-  }
-}
 
-// Mieux que reparer : prendre les devants. Un aller-retour de zoom des le
-// debut du chargement force Chrome a appliquer le zoom de x.com avant que X ne
-// pose sa mise en page — il demarre alors sur la bonne largeur et il n'y a plus
-// rien a corriger. Rien n'est encore affiche a ce stade, donc rien ne se voit.
-const xTabsPrimed = new Set();
+  const measure = await measureXLayout(tabId).catch(() => null);
+  const zoom = await chrome.tabs.getZoom(tabId).catch(() => 1);
+  const broken = !!measure && measure.over > X_LAYOUT_SLACK;
+  // Un onglet cache ne voit pas toujours son propre decalage : son viewport
+  // reste fige sur l'ancienne mesure, donc tout parait coherent. Des qu'un zoom
+  // est actif sur x.com le decalage est a prevoir, on n'attend pas de pouvoir
+  // le mesurer.
+  const zoomed = Math.abs(zoom - 1) > 0.01;
+  if (!broken && !zoomed) return;
 
-async function primeXTabZoom(tabId) {
-  const mods = await getModules();
-  if (!mods.xLayoutRefresh || !(await isMasterEnabled())) return;
-  try {
-    await xNudgeZoom(tabId);
-  } catch (e) {
-    console.warn(TAG, "amorce zoom onglet X echec:", e.message);
-  }
+  xTabsHandled.add(tabId);
+  console.log(
+    TAG,
+    "onglet X recharge en arriere-plan:",
+    tabId,
+    broken ? "(decalage mesure)" : "(zoom actif)",
+  );
+  await chrome.tabs.reload(tabId);
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  const url = changeInfo.url || (tab && tab.url) || "";
-  if (!isXLayoutTarget(url) || (tab && tab.active)) return;
-
-  if (changeInfo.status === "loading" && !xTabsPrimed.has(tabId)) {
-    xTabsPrimed.add(tabId);
-    // Une seule amorce par navigation : "loading" peut se repeter.
-    setTimeout(() => xTabsPrimed.delete(tabId), 10000);
-    primeXTabZoom(tabId);
-    return;
-  }
-
   if (changeInfo.status !== "complete") return;
-  // Filet si l'amorce n'a pas suffi : laisser X poser son premier rendu, puis
-  // le faire remesurer pendant que l'onglet est encore cache.
-  setTimeout(() => prepareHiddenXTab(tabId), X_PREPARE_DELAY);
+  const url = (tab && tab.url) || changeInfo.url || "";
+  if (!isXLayoutTarget(url) || (tab && tab.active)) return;
+  // Laisser X poser son premier rendu : la mesure n'a de sens qu'apres.
+  setTimeout(() => prepareHiddenXTab(tabId), X_RELOAD_DELAY);
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => xTabsPrimed.delete(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => xTabsHandled.delete(tabId));
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "reload-tabs") {
@@ -1149,7 +1195,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // Depuis un content script, on repare SON onglet ; depuis le popup, il n'y
     // a pas d'onglet emetteur et on prend l'onglet actif.
     const from = _sender && _sender.tab ? _sender.tab.id : undefined;
-    fixXLayout(from)
+    fixXLayout(from, !!msg.quiet)
       .then(sendResponse)
       .catch((e) => sendResponse({ ok: false, reason: e.message }));
     return true; // reponse asynchrone

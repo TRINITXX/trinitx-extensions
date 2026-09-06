@@ -14,7 +14,9 @@
     "*://*.twitch.tv/*",
     "https://static.twitchcdn.net/assets/*",
     "*://x.com/*",
-    "*://twitter.com/*"
+    "*://twitter.com/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "web_accessible_resources": [
     {
@@ -23,6 +25,10 @@
         "modules/twitch-nosub/chrome/app.js"
       ],
       "matches": ["https://*.twitch.tv/*"]
+    },
+    {
+      "resources": ["modules/flag-emoji/TwemojiCountryFlags.woff2"],
+      "matches": ["http://*/*", "https://*/*"]
     },
     {
       "resources": [

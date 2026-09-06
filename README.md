@@ -14,7 +14,7 @@ extension, avec un popup pour activer/désactiver chacun.
 | **X — Masquer par pays**         | x.com              | Masque les tweets des comptes basés dans les pays de ta liste (provenance « About this account » de X) ; liste par défaut : Afrique, Inde, Pakistan |
 | **X — Thème Dim**                | x.com, twitter.com | Restaure le thème bleu « Dim » par-dessus le mode sombre actuel (fond, textes, bordures, scrollbar)                                          |
 | **X — Fil seul**                 | x.com, twitter.com | Masque la navigation de gauche et la colonne de droite (recherche, tendances, suggestions) sans déplacer le fil ; pastille discrète en haut à droite pour tout réafficher |
-| **X — Mise en page figée**       | x.com, twitter.com | Un onglet X ouvert en arrière-plan est rendu au zoom 100 % puis zoomé à l'affichage sans que X ne remesure (barre de gauche restée « en grand », défilement horizontal) : l'onglet est remis droit tant qu'il est caché (sauf `x.com/home`, jamais touché) ; bouton « Réparer maintenant » dans le popup |
+| **X — Mise en page figée**       | x.com, twitter.com | Un onglet X ouvert en arrière-plan est rendu au zoom 100 % puis zoomé à l'affichage sans que X ne remesure (barre de gauche restée « en grand », défilement horizontal) : l'onglet est rechargé pendant qu'il est encore en arrière-plan, donc rien ne se voit (sauf `x.com/home`, jamais touché) ; bouton « Réparer maintenant » dans le popup |
 | **Twitch — VOD sub-only**        | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
 | **Twitch — Anti-pub (vaft)**     | twitch.tv          | Bloque les pubs des lives (variante _vaft_ de [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions))                           |
 | **Twitch — Preview au survol**   | twitch.tv          | Preview vidéo en direct de la chaîne au survol d'un streamer dans les listes (sidebar, accueil, catégories, recherche) ; muette, flottante   |
@@ -23,6 +23,7 @@ extension, avec un popup pour activer/désactiver chacun.
 | **YouTube — Vitesse perso**      | youtube.com        | Boutons `−` / `+` dans le lecteur pour régler la vitesse au-delà de 2x (jusqu'à 16x) ; clic sur le chiffre = retour à 1x                     |
 | **YouTube — Pas de traduction**  | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
 | **YouTube — Meilleure qualité**  | youtube.com        | Force automatiquement la plus haute résolution disponible (1080p, 1440p, 4K…) sur chaque vidéo, au lieu de la qualité « Auto »               |
+| **Drapeaux emoji**               | toutes             | Windows n'a pas les glyphes de drapeaux et Chrome n'embarque pas de police de secours : les drapeaux s'affichent en deux lettres (`FR`, `MA`). Une police Twemoji limitée aux drapeaux est appliquée uniquement sur ces caractères, sans toucher au reste de la typographie |
 | **Recharger les onglets**        | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)                           |
 
 ## Installer
@@ -65,6 +66,10 @@ trinitx-extensions/
     ├── x-dim-theme/content.js     # monde ISOLATED, restaure le thème Dim (CSS)
     ├── x-focus-timeline/content.js # monde ISOLATED, masque les bandes latérales (CSS, visibility)
     ├── x-layout-refresh/content.js # monde ISOLATED, force X à remesurer la fenêtre
+    ├── flag-emoji/                 # ISOLATED, tous les sites : drapeaux emoji
+    │   ├── content.js              # detection canvas + FontFace + wrapping des drapeaux
+    │   ├── TwemojiCountryFlags.woff2 # sous-ensemble Twemoji (drapeaux seuls, 78 Ko)
+    │   └── NOTICE.md               # provenance + licences (Twemoji CC-BY 4.0)
     ├── youtube-custom-speed/content.js  # monde ISOLATED, widget vitesse perso
     ├── youtube-best-quality/main.js     # monde MAIN, force la meilleure qualité (API du lecteur)
     ├── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)
@@ -283,7 +288,9 @@ pip-remote pour les détails).
 [MIT](LICENSE) © 2026 TRINITX
 
 Composants vendorés sous leur propre licence : `modules/twitch-nosub/`
-(**Apache-2.0**, besuper) et `modules/youtube-no-translation/` (**AGPL-3.0**,
-YouG-o). L'AGPL est un copyleft fort : si cette extension venait à être
+(**Apache-2.0**, besuper), `modules/youtube-no-translation/` (**AGPL-3.0**,
+YouG-o) et `modules/flag-emoji/TwemojiCountryFlags.woff2` (graphismes
+**Twemoji**, **CC-BY 4.0**, via `country-flag-emoji-polyfill` de TalkJS, MIT —
+voir `modules/flag-emoji/NOTICE.md`). L'AGPL est un copyleft fort : si cette extension venait à être
 **distribuée**, la combinaison serait concernée. Pour un usage **perso non
 distribué**, c'est sans incidence pratique.
