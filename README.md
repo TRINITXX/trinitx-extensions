@@ -11,7 +11,7 @@ extension, avec un popup pour activer/désactiver chacun.
 | **X — Block en 1 clic**          | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                                           |
 | **X — Masquer la sélection**     | x.com              | Clic droit sur une sélection → « Masquer sur X » : ajoute le texte aux mots masqués (de tout le monde, sans limite) via une fenêtre invisible |
 | **X — Masquer les partenariats** | x.com              | Cache les tweets marqués « Partenariat rémunéré » (contenus sponsorisés) et la suite du thread quand l'auteur enchaîne des réponses          |
-| **X — Masquer par pays**         | x.com              | Masque les tweets des comptes basés dans les pays de ta liste (provenance « About this account » de X) ; liste par défaut : Afrique, Inde, Pakistan |
+| **X — Masquer par pays**         | x.com              | Masque les tweets des comptes basés dans les pays de ta liste (provenance « About this account » de X) ; liste par défaut : Afrique, Inde, Pakistan ; pastille en haut à droite pour couper/remettre le filtre à la volée |
 | **X — Thème Dim**                | x.com, twitter.com | Restaure le thème bleu « Dim » par-dessus le mode sombre actuel (fond, textes, bordures, scrollbar)                                          |
 | **X — Fil seul**                 | x.com, twitter.com | Masque la navigation de gauche et la colonne de droite (recherche, tendances, suggestions) sans déplacer le fil ; pastille discrète en haut à droite pour tout réafficher |
 | **X — Mise en page figée**       | x.com, twitter.com | Un onglet X ouvert en arrière-plan est rendu au zoom 100 % puis zoomé à l'affichage sans que X ne remesure (barre de gauche restée « en grand », défilement horizontal) : l'onglet est rechargé pendant qu'il est encore en arrière-plan, donc rien ne se voit (sauf `x.com/home`, jamais touché) ; bouton « Réparer maintenant » dans le popup |
@@ -127,6 +127,15 @@ expose désormais dans « About this account » (`account_based_in`). Cette info
   provoque un bref _flash_ (le tweet s'affiche puis disparaît le temps de résoudre
   son pays) ; ensuite plus jamais. **Throttle** 500 ms entre appels + backoff sur
   `429` (bascule POST/GET) pour rester sous les rate-limits.
+- **Pastille de pause** en haut à droite de la page (à gauche de celle de « Fil
+  seul ») : un clic coupe le filtre, un autre le remet. Grise quand le filtre
+  tourne, **ambre** quand il est en pause. La bascule est **instantanée** : les
+  tweets restent marqués (`data-xhbc-hidden`) et c'est une classe sur `<html>`
+  qui neutralise la règle CSS de masquage — aucun parcours du DOM, aucun appel
+  réseau, donc rien à ré-résoudre au retour. L'état est persisté
+  (`chrome.storage.local.hideByCountryPaused`), donc **partagé entre tous les
+  onglets X et conservé au rechargement**. En pause, aucun appel
+  `AboutAccountQuery` n'est plus émis.
 - Compte sans pays / privé / erreur API → **reste visible**.
 - **OFF par défaut** : contrairement aux autres modules, il génère du trafic API en
   arrière-plan (un appel par auteur non caché), donc opt-in volontaire.

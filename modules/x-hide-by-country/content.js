@@ -30,6 +30,14 @@
   const TTL_MS = 180 * 24 * 60 * 60 * 1000; // 180 jours
   const THROTTLE_MS = 500; // delai mini entre deux appels AboutAccountQuery
   const STORAGE_KEY = "hiddenCountries";
+  // Pause du filtre, pilotee par la pastille en haut a droite. Persistee (donc
+  // partagee entre tous les onglets X et conservee au rechargement) : couper le
+  // filtre est une decision qui doit tenir, pas un reglage par onglet.
+  const PAUSE_KEY = "hideByCountryPaused";
+  const BUTTON_ID = "x-hide-by-country-toggle";
+  // Classe posee sur <html> pendant la pause : elle desactive la regle de
+  // masquage sans toucher aux marquages deja poses sur les tweets.
+  const PAUSED_CLASS = "xhbc-paused";
 
   const TWEET_SELECTOR = 'article[data-testid="tweet"]';
   const CELL_SELECTOR = '[data-testid="cellInnerDiv"]';
@@ -41,6 +49,7 @@
 
   // Etat en memoire (par page)
   let hiddenSet = new Set(); // pays a masquer (chaines normalisees)
+  let paused = false; // filtre suspendu depuis la pastille
   const countryOf = new Map(); // screenName(lc) -> country|null (resolu)
   const pending = new Set(); // screenName(lc) en file / en cours
   const queue = [];
@@ -206,9 +215,11 @@
   }
 
   // --- Masquage ------------------------------------------------------------
-  // On masque la cellule entiere (cellInnerDiv) pour supprimer aussi l'espace ;
-  // fallback sur l'article. On ne touche qu'aux proprietes qu'on gere, reperees
-  // par HIDE_ATTR, pour pouvoir re-afficher proprement au decochage.
+  // On marque la cellule entiere (cellInnerDiv) pour supprimer aussi l'espace ;
+  // fallback sur l'article. Le marquage ne fait QUE poser HIDE_ATTR : c'est une
+  // regle CSS (`html:not(.PAUSED_CLASS) [HIDE_ATTR]`) qui masque reellement. Du
+  // coup la pause se resume a une classe sur <html> -> bascule instantanee dans
+  // les deux sens, sans parcourir le DOM ni re-resoudre le moindre pays.
   function tweetCell(article) {
     return article.closest(CELL_SELECTOR) || article;
   }
@@ -217,10 +228,8 @@
     if (hide) {
       if (cell.getAttribute(HIDE_ATTR)) return;
       cell.setAttribute(HIDE_ATTR, "1");
-      cell.style.display = "none";
     } else if (cell.getAttribute(HIDE_ATTR)) {
       cell.removeAttribute(HIDE_ATTR);
-      cell.style.display = "";
     }
   }
 
@@ -229,6 +238,9 @@
     return !!(c && hiddenSet.has(c));
   }
 
+  // En pause on continue de resoudre et de marquer les tweets : ils restent
+  // visibles (le CSS neutralise le marquage) et la reactivation est immediate,
+  // sans attendre un appel AboutAccountQuery par auteur.
   function applyArticle(article) {
     const sn = getScreenName(article);
     if (!sn) return;
@@ -257,31 +269,128 @@
     scanScheduled = true;
     requestAnimationFrame(() => {
       scanScheduled = false;
+      mountButton(); // X remplace parfois le <body> lors d'une navigation interne
       applyAll();
     });
+  }
+
+  // --- Feuille de style : masquage + pastille ------------------------------
+  // La pastille reprend le gabarit de x-focus-timeline (20px cliquables, point
+  // de 7px), decalee de 22px vers la gauche pour se poser a cote sans la
+  // recouvrir. Grise et quasi invisible quand le filtre tourne ; ambre bien
+  // lisible quand il est en pause, pour ne pas oublier qu'on voit tout.
+  const STYLE_CSS = `
+    html:not(.${PAUSED_CLASS}) [${HIDE_ATTR}] {
+      display: none !important;
+    }
+
+    #${BUTTON_ID} {
+      position: fixed;
+      top: 3px;
+      right: 25px;
+      z-index: 2147483000;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    #${BUTTON_ID}::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      color: #71767b;
+      opacity: 0.16;
+      transition: opacity 120ms ease;
+    }
+    #${BUTTON_ID}:hover::before,
+    #${BUTTON_ID}:focus-visible::before {
+      opacity: 0.9;
+    }
+    #${BUTTON_ID}[data-paused="1"]::before {
+      color: #f0a53d;
+      opacity: 0.85;
+    }
+  `;
+
+  function injectStyle() {
+    if (document.getElementById(BUTTON_ID + "-style")) return;
+    const style = document.createElement("style");
+    style.id = BUTTON_ID + "-style";
+    style.textContent = STYLE_CSS;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  // Reflete `paused` dans le DOM : la classe fait (re)apparaitre ou disparaitre
+  // tous les tweets marques d'un coup, la pastille change de couleur.
+  function refreshPausedState() {
+    document.documentElement.classList.toggle(PAUSED_CLASS, paused);
+    const button = document.getElementById(BUTTON_ID);
+    if (!button) return;
+    button.dataset.paused = paused ? "1" : "0";
+    button.title = paused
+      ? "Masquage par pays désactivé — cliquer pour réactiver"
+      : "Masquage par pays actif — cliquer pour désactiver";
+  }
+
+  function mountButton() {
+    if (!document.body || document.getElementById(BUTTON_ID)) return;
+    const button = document.createElement("button");
+    button.id = BUTTON_ID;
+    button.type = "button";
+    button.setAttribute("aria-label", "Activer ou désactiver le masquage par pays");
+    // On n'ecrit que dans le storage : c'est storage.onChanged qui met a jour
+    // l'etat et le DOM, ici comme dans les autres onglets X ouverts.
+    button.addEventListener("click", () => {
+      chrome.storage.local.set({ [PAUSE_KEY]: !paused });
+    });
+    document.body.appendChild(button);
+    refreshPausedState();
   }
 
   // --- Blacklist (storage) -------------------------------------------------
   function normalize(list) {
     return new Set((Array.isArray(list) ? list : []).map(aliasOf));
   }
-  async function loadHidden() {
-    const obj = await chrome.storage.local.get(STORAGE_KEY);
+  async function loadState() {
+    const obj = await chrome.storage.local.get([STORAGE_KEY, PAUSE_KEY]);
     const list = obj[STORAGE_KEY];
     hiddenSet = normalize(Array.isArray(list) ? list : DATA.DEFAULT_HIDDEN);
+    paused = obj[PAUSE_KEY] === true;
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes[STORAGE_KEY]) return;
-    const nv = changes[STORAGE_KEY].newValue;
-    hiddenSet = normalize(Array.isArray(nv) ? nv : DATA.DEFAULT_HIDDEN);
-    // Re-evalue tout : masque les pays nouvellement coches, re-affiche les decoches.
-    applyAll();
+    if (area !== "local") return;
+    if (!changes[STORAGE_KEY] && !changes[PAUSE_KEY]) return;
+    if (changes[PAUSE_KEY]) {
+      paused = changes[PAUSE_KEY].newValue === true;
+      // La classe suffit a tout (re)afficher : rien d'autre a faire ici.
+      refreshPausedState();
+    }
+    if (changes[STORAGE_KEY]) {
+      const nv = changes[STORAGE_KEY].newValue;
+      hiddenSet = normalize(Array.isArray(nv) ? nv : DATA.DEFAULT_HIDDEN);
+      // Re-evalue tout : marque les pays nouvellement coches, demarque les decoches.
+      applyAll();
+    }
   });
 
   // --- Init ----------------------------------------------------------------
   async function init() {
-    await loadHidden();
+    await loadState();
+    injectStyle();
+    refreshPausedState();
+    mountButton();
     scheduleScan();
 
     const observer = new MutationObserver(scheduleScan);
