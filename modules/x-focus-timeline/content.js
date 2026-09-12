@@ -13,6 +13,11 @@
   const OFF_CLASS = "x-focus-timeline-off";
   const BUTTON_ID = "x-focus-timeline-toggle";
 
+  // Lien "Notifications" de la barre laterale + attribut pose sur les seuls
+  // noeuds qu'on rallume quand la cloche porte un badge.
+  const NOTIF_LINK = 'a[data-testid="AppTabBar_Notifications_Link"]';
+  const REVEAL_ATTR = "data-x-focus-timeline-reveal";
+
   // On masque en `visibility: hidden` et JAMAIS en `display: none` : le layout
   // de X est un flex a trois colonnes (banner | primaryColumn | sidebarColumn),
   // retirer une colonne du flux recentrerait le fil. `visibility` laisse la
@@ -28,6 +33,14 @@
     html:not(.${OFF_CLASS}) [data-testid="GrokDrawer"],
     html:not(.${OFF_CLASS}) [data-testid="chat-drawer-root"] {
       visibility: hidden !important;
+    }
+
+    /* Exception : la cloche de notifications reste visible quand elle porte un
+       badge. Un descendant en visibility: visible annule le hidden de son
+       ancetre -> on ne rallume que l'icone et son badge, jamais tout le lien
+       (son libelle texte reapparaitrait). */
+    html:not(.${OFF_CLASS}) [${REVEAL_ATTR}] {
+      visibility: visible !important;
     }
 
     /* Pastille de bascule : zone cliquable de 20px, point de 7px a peine
@@ -71,6 +84,69 @@
       opacity: 0.55;
     }
   `;
+
+  // Le badge est une petite pastille coloree posee sur l'icone. On le reconnait
+  // a sa taille (le rond gris du survol fait ~40px) et a son fond opaque : sa
+  // couleur, elle, suit l'accent choisi par le compte, donc on ne la teste pas.
+  function isBadge(element) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.width > 24 || rect.height > 24) return false;
+    const background = getComputedStyle(element).backgroundColor;
+    return background !== "transparent" && background !== "rgba(0, 0, 0, 0)";
+  }
+
+  let revealed = [];
+
+  function refreshNotificationBadge() {
+    for (const element of revealed) element.removeAttribute(REVEAL_ATTR);
+    revealed = [];
+
+    const link = document.querySelector(NOTIF_LINK);
+    if (!link) return;
+
+    const badges = [...link.querySelectorAll("div")].filter(isBadge);
+    // Filet de securite independant de la langue : X chiffre les non-lus dans
+    // l'aria-label du lien ("3 notifications non lues. Notifications").
+    const label = link.getAttribute("aria-label") || "";
+    if (badges.length === 0 && !/\d/.test(label)) return;
+
+    const icon = link.querySelector("svg")?.parentElement;
+    revealed = icon ? [icon, ...badges] : badges;
+    for (const element of revealed) element.setAttribute(REVEAL_ATTR, "");
+  }
+
+  // X remonte un compteur de non-lus en direct : on suit les mutations du
+  // header (et le seul attribut qui nous interesse) plutot que de sonder.
+  function watchNotifications() {
+    let scheduled = false;
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = true;
+      setTimeout(() => {
+        scheduled = false;
+        refreshNotificationBadge();
+      }, 300);
+    };
+
+    const attach = () => {
+      const header = document.querySelector('header[role="banner"]');
+      if (!header) return false;
+      new MutationObserver(schedule).observe(header, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["aria-label"],
+      });
+      refreshNotificationBadge();
+      return true;
+    };
+
+    if (attach()) return;
+    const waiter = new MutationObserver(() => {
+      if (attach()) waiter.disconnect();
+    });
+    waiter.observe(document.documentElement, { childList: true, subtree: true });
+  }
 
   function injectStyle() {
     if (document.getElementById("x-focus-timeline")) return;
@@ -126,5 +202,6 @@
 
   injectStyle();
   keepButtonMounted();
+  watchNotifications();
   console.log(TAG, "bandes laterales masquees");
 })();
