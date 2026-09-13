@@ -86,11 +86,13 @@
   `;
 
   // Le badge est une petite pastille coloree posee sur l'icone. On le reconnait
-  // a sa taille (le rond gris du survol fait ~40px) et a son fond opaque : sa
-  // couleur, elle, suit l'accent choisi par le compte, donc on ne la teste pas.
+  // a sa hauteur (mesure : le rond gris du survol fait 50px, le conteneur de
+  // l'icone 26px et reste transparent) et a son fond opaque ; sa couleur suit
+  // l'accent choisi par le compte, donc on ne la teste pas. La largeur est plus
+  // permissive que la hauteur : un compteur a trois caracteres (99+) s'etire.
   function isBadge(element) {
     const rect = element.getBoundingClientRect();
-    if (rect.width === 0 || rect.width > 24 || rect.height > 24) return false;
+    if (rect.height === 0 || rect.height > 24 || rect.width > 44) return false;
     const background = getComputedStyle(element).backgroundColor;
     return background !== "transparent" && background !== "rgba(0, 0, 0, 0)";
   }
