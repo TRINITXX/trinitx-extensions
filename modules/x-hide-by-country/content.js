@@ -393,7 +393,21 @@
     mountButton();
     scheduleScan();
 
-    const observer = new MutationObserver(scheduleScan);
+    // Les tweets ajoutes sont traites DANS le callback, sans attendre la frame
+    // suivante : au retour arriere sur un tweet, X restaure le scroll des la
+    // premiere frame. Masquer une frame trop tard retirait des cellules
+    // au-dessus de la position deja restauree -> on retombait ~1 ecran par
+    // tweet masque plus bas. Le scan complet differe reste en filet de securite.
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          if (node.matches(TWEET_SELECTOR)) applyArticle(node);
+          else node.querySelectorAll(TWEET_SELECTOR).forEach(applyArticle);
+        }
+      }
+      scheduleScan();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
 
     // Navigation SPA (URL change sans reload) -> rescan.
