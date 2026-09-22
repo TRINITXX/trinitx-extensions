@@ -39,7 +39,7 @@ Decide the entry file name: `content.js` for ISOLATED DOM modules, `main.js` for
 })();
 ```
 
-**Wrap the whole module in an IIFE `(() => { ... })()`** — content scripts run at file scope, so a top-level `return` for the guard throws `Illegal return statement`, and top-level `const`s would clash on re-injection. The IIFE both makes the guard `return` legal and scopes the declarations. Keep the guard as the first two statements inside it — modules can be re-injected into an already-open tab. (MAIN-world interceptors that wrap `fetch`/`Worker` follow the same wrapped-guard pattern; see `modules/x-auto-sort/main.js`.)
+Keep the IIFE and the guard as its first two statements (why: see the double-load guard convention in `AGENTS.md`). MAIN-world interceptors follow the same pattern; see `modules/x-auto-sort/main.js`.
 
 ## Step 3 — Register in `background.js`
 
