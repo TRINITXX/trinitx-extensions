@@ -282,7 +282,9 @@ async function injectIntoOpenTabs(key) {
 // ===========================================================================
 // MODULE PiP — commandes clavier + chrome.debugger (userGesture)
 // ===========================================================================
-const PIP_KEY = "pipTabId";
+// Le module ne pilote QUE Twitch : jamais le PiP ni le son d'un autre site,
+// quel que soit l'onglet actif. Cible = le dernier onglet Twitch consulte.
+const PIP_TWITCH_MATCH = ["*://*.twitch.tv/*"];
 let pipBusy = false;
 
 // Injecte (chrome.scripting) : ferme le PiP s'il existe, sinon signale la video.
@@ -313,27 +315,18 @@ const OPEN_EXPRESSION = `(async () => {
   }
 })()`;
 
-async function getRememberedTabId() {
-  const obj = await chrome.storage.session.get(PIP_KEY);
-  const id = obj[PIP_KEY];
-  if (id == null) return null;
+// Onglets Twitch, du plus recemment consulte au plus ancien.
+async function getTwitchTabsByRecency() {
+  let tabs = [];
   try {
-    await chrome.tabs.get(id);
-    return id;
-  } catch {
-    await chrome.storage.session.remove(PIP_KEY);
-    return null;
+    tabs = await chrome.tabs.query({ url: PIP_TWITCH_MATCH });
+  } catch (e) {
+    console.warn(TAG, "PiP: query onglets Twitch echec:", e.message);
+    return [];
   }
-}
-async function rememberPipTab(id) {
-  await chrome.storage.session.set({ [PIP_KEY]: id });
-}
-async function getActiveTab() {
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true,
-  });
-  return tab || null;
+  return tabs
+    .filter((t) => t.id != null)
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
 }
 
 // chrome.scripting : detecter / fermer (aucun bandeau)
@@ -444,19 +437,15 @@ function flashBadge(text, color) {
   setTimeout(() => chrome.action.setBadgeText({ text: "" }), 1200);
 }
 
+// Ferme le PiP d'un onglet Twitch s'il y en a un ; sinon designe le dernier
+// onglet Twitch consulte qui a une video lisible. Les autres sites : jamais.
 async function resolveTargetAndAct() {
-  const remembered = await getRememberedTabId();
-  if (remembered != null) {
-    const s = await probeOrCloseTab(remembered);
-    if (s === "closed") return { tabId: remembered, action: "closed" };
-    if (s === "has-video") return { tabId: remembered, action: "open" };
-  }
-  const active = await getActiveTab();
-  if (!active) return null;
-  const s = await probeOrCloseTab(active.id);
-  if (s === "closed") return { tabId: active.id, action: "closed" };
-  if (s === "has-video") return { tabId: active.id, action: "open" };
-  return { tabId: active.id, action: "none" };
+  const tabs = await getTwitchTabsByRecency();
+  const states = await Promise.all(tabs.map((t) => probeOrCloseTab(t.id)));
+  if (states.includes("closed")) return { action: "closed" };
+  const i = states.indexOf("has-video");
+  if (i === -1) return null;
+  return { tabId: tabs[i].id, action: "open" };
 }
 
 async function handleTogglePip() {
@@ -465,20 +454,16 @@ async function handleTogglePip() {
   try {
     const target = await resolveTargetAndAct();
     if (!target) {
-      console.warn(TAG, "aucun onglet cible");
+      console.warn(TAG, "aucun onglet Twitch avec une video");
+      flashBadge("!", "#cc3333");
       return;
     }
     if (target.action === "closed") {
       flashBadge("off", "#666666");
       return;
     }
-    if (target.action === "none") {
-      flashBadge("!", "#cc3333");
-      return;
-    }
     const res = await openPipViaDebugger(target.tabId);
     if (res.status === "opened") {
-      await rememberPipTab(target.tabId);
       flashBadge("PiP", "#33aa33");
     } else {
       console.warn(TAG, "ouverture PiP echouee:", res.status, res.error || "");
@@ -505,48 +490,31 @@ async function tabHasPip(tabId) {
     });
     return results.some((r) => r.result === true);
   } catch {
-    // Onglet hors host_permissions (chrome://, autre site) : pas de PiP visible.
+    // Onglet inaccessible (decharge, en cours de chargement) : pas de PiP visible.
     return false;
   }
 }
 
-// Retrouve l'onglet REELLEMENT en PiP, meme si le PiP a ete ouvert a la main
-// depuis la page (auquel cas pipTabId n'a jamais ete pose). On tente d'abord
-// l'onglet memorise, puis on balaie les onglets injectables — les onglets qui
-// produisent du son d'abord, c'est le cas courant.
-async function findPipTabId() {
-  const remembered = await getRememberedTabId();
-  if (remembered != null && (await tabHasPip(remembered))) return remembered;
-
-  // Limite au perimetre injectable : ailleurs, executeScript echouerait de toute facon.
-  const urls = chrome.runtime.getManifest().host_permissions || [];
-  const tabs = (await chrome.tabs.query({ url: urls })).filter(
-    (t) => t.id != null && t.id !== remembered,
-  );
-  tabs.sort((a, b) => (b.audible ? 1 : 0) - (a.audible ? 1 : 0));
-
-  const checks = await Promise.all(
-    tabs.map(async (t) => ({ id: t.id, pip: await tabHasPip(t.id) })),
-  );
-  const hit = checks.find((c) => c.pip);
-  if (!hit) return null;
-  await rememberPipTab(hit.id);
-  return hit.id;
+// Cible du mute : l'onglet Twitch en PiP s'il y en a un (le stream regarde en
+// vignette, meme ouvert a la main), sinon le dernier onglet Twitch consulte.
+// Jamais l'onglet actif s'il n'est pas sur Twitch.
+async function findMuteTargetTab() {
+  const tabs = await getTwitchTabsByRecency();
+  if (!tabs.length) return null;
+  const pips = await Promise.all(tabs.map((t) => tabHasPip(t.id)));
+  const i = pips.indexOf(true);
+  return tabs[i === -1 ? 0 : i];
 }
 
 async function handleToggleMute() {
-  // Cible l'onglet en PiP, jamais l'onglet actif : le raccourci sert a couper
-  // le stream qu'on regarde en vignette pendant qu'on lit autre chose.
-  let tabId = await findPipTabId();
-  if (tabId == null) tabId = await getRememberedTabId(); // dernier PiP connu
-  if (tabId == null) {
-    console.warn(TAG, "aucun onglet en PiP a muter");
+  const tab = await findMuteTargetTab();
+  if (!tab) {
+    console.warn(TAG, "aucun onglet Twitch a muter");
     flashBadge("!", "#cc3333");
     return;
   }
-  const tab = await chrome.tabs.get(tabId);
   const muted = !(tab.mutedInfo && tab.mutedInfo.muted);
-  await chrome.tabs.update(tabId, { muted });
+  await chrome.tabs.update(tab.id, { muted });
   flashBadge(muted ? "mut" : "snd", "#3366cc");
 }
 
@@ -1199,13 +1167,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .then(sendResponse)
       .catch((e) => sendResponse({ ok: false, reason: e.message }));
     return true; // reponse asynchrone
-  }
-});
-
-chrome.tabs.onRemoved.addListener(async (tabId) => {
-  const obj = await chrome.storage.session.get(PIP_KEY);
-  if (obj[PIP_KEY] === tabId) {
-    await chrome.storage.session.remove(PIP_KEY);
   }
 });
 
