@@ -136,6 +136,12 @@ expose désormais dans « About this account » (`account_based_in`). Cette info
   (`chrome.storage.local.hideByCountryPaused`), donc **partagé entre tous les
   onglets X et conservé au rechargement**. En pause, aucun appel
   `AboutAccountQuery` n'est plus émis.
+- **Jamais dans l'onglet « Abonné »** de l'accueil (comptes choisis) : repéré comme
+  2e onglet du tablist, il pose la classe `xhbc-following` sur `<html>`, même
+  mécanique que la pause. « Pour vous », réponses, recherche et profils restent
+  filtrés.
+- **Tweet ouvert toujours visible** : sur `/<user>/status/<id>`, le tweet principal
+  n'est jamais masqué, seules ses réponses le sont.
 - Compte sans pays / privé / erreur API → **reste visible**.
 - **OFF par défaut** : contrairement aux autres modules, il génère du trafic API en
   arrière-plan (un appel par auteur non caché), donc opt-in volontaire.

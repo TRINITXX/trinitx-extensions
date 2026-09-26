@@ -38,6 +38,9 @@
   // Classe posee sur <html> pendant la pause : elle desactive la regle de
   // masquage sans toucher aux marquages deja poses sur les tweets.
   const PAUSED_CLASS = "xhbc-paused";
+  // Classe posee sur <html> quand on est sur l'onglet "Abonné" de l'accueil :
+  // ce sont des comptes choisis, on n'y masque rien. Meme mecanique que la pause.
+  const FOLLOWING_CLASS = "xhbc-following";
 
   const TWEET_SELECTOR = 'article[data-testid="tweet"]';
   const CELL_SELECTOR = '[data-testid="cellInnerDiv"]';
@@ -238,6 +241,18 @@
     return !!(c && hiddenSet.has(c));
   }
 
+  // Sur la page d'un tweet (/<user>/status/<id>), le tweet ouvert n'est jamais
+  // masque : on a clique dessus pour le lire, seules ses reponses sont filtrees.
+  // On le reconnait a son lien d'horodatage, qui pointe sur son propre id (un
+  // tweet cite n'a pas d'horodatage cliquable, il ne peut donc pas matcher).
+  function isOpenedTweet(article) {
+    const m = location.pathname.match(/^\/[A-Za-z0-9_]{1,15}\/status\/(\d+)/);
+    if (!m) return false;
+    const link = article.querySelector("time")?.closest("a");
+    const own = link?.getAttribute("href")?.match(/\/status\/(\d+)/);
+    return !!own && own[1] === m[1];
+  }
+
   // En pause on continue de resoudre et de marquer les tweets : ils restent
   // visibles (le CSS neutralise le marquage) et la reactivation est immediate,
   // sans attendre un appel AboutAccountQuery par auteur.
@@ -248,18 +263,32 @@
       enqueue(sn); // pays inconnu -> on le resout (le tweet reste visible en attendant)
       return;
     }
-    setHidden(article, decide(sn));
+    setHidden(article, !isOpenedTweet(article) && decide(sn));
   }
 
   function applyForUser(sn) {
     const hide = decide(sn);
     document.querySelectorAll(TWEET_SELECTOR).forEach((a) => {
-      if (getScreenName(a) === sn) setHidden(a, hide);
+      if (getScreenName(a) === sn) setHidden(a, hide && !isOpenedTweet(a));
     });
   }
 
   function applyAll() {
     document.querySelectorAll(TWEET_SELECTOR).forEach(applyArticle);
+  }
+
+  // --- Onglet "Abonné" -----------------------------------------------------
+  // L'URL reste /home quel que soit l'onglet : seul l'onglet selectionne du
+  // tablist le dit. On le repere a sa position (2e onglet, apres "Pour vous" et
+  // avant les listes epinglees) : le libelle change selon la langue ("Abonné",
+  // "Following"...), l'ordre non.
+  function isOnFollowingTab() {
+    if (!/^\/home\/?$/.test(location.pathname)) return false;
+    const tabs = document.querySelectorAll('[role="tablist"] [role="tab"]');
+    return tabs[1]?.getAttribute("aria-selected") === "true";
+  }
+  function refreshFollowingState() {
+    document.documentElement.classList.toggle(FOLLOWING_CLASS, isOnFollowingTab());
   }
 
   // --- Scan (timeline virtualisee) -----------------------------------------
@@ -270,6 +299,7 @@
     requestAnimationFrame(() => {
       scanScheduled = false;
       mountButton(); // X remplace parfois le <body> lors d'une navigation interne
+      refreshFollowingState();
       applyAll();
     });
   }
@@ -280,7 +310,7 @@
   // recouvrir. Grise et quasi invisible quand le filtre tourne ; ambre bien
   // lisible quand il est en pause, pour ne pas oublier qu'on voit tout.
   const STYLE_CSS = `
-    html:not(.${PAUSED_CLASS}) [${HIDE_ATTR}] {
+    html:not(.${PAUSED_CLASS}):not(.${FOLLOWING_CLASS}) [${HIDE_ATTR}] {
       display: none !important;
     }
 
@@ -390,6 +420,7 @@
     await loadState();
     injectStyle();
     refreshPausedState();
+    refreshFollowingState();
     mountButton();
     scheduleScan();
 
@@ -398,7 +429,10 @@
     // premiere frame. Masquer une frame trop tard retirait des cellules
     // au-dessus de la position deja restauree -> on retombait ~1 ecran par
     // tweet masque plus bas. Le scan complet differe reste en filet de securite.
+    // L'onglet est re-evalue avant de marquer : en revenant sur "Pour vous", la
+    // classe doit tomber dans la meme tache que l'arrivee des tweets.
     const observer = new MutationObserver((records) => {
+      refreshFollowingState();
       for (const record of records) {
         for (const node of record.addedNodes) {
           if (node.nodeType !== Node.ELEMENT_NODE) continue;
