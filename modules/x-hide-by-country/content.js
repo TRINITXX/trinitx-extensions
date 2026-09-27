@@ -243,14 +243,17 @@
 
   // Sur la page d'un tweet (/<user>/status/<id>), le tweet ouvert n'est jamais
   // masque : on a clique dessus pour le lire, seules ses reponses sont filtrees.
-  // On le reconnait a son lien d'horodatage, qui pointe sur son propre id (un
-  // tweet cite n'a pas d'horodatage cliquable, il ne peut donc pas matcher).
+  // On le reconnait a son lien d'horodatage, qui pointe sur son propre id. Il faut
+  // parcourir TOUS les <time> : sur la page du tweet, l'horodatage du tweet cite
+  // (sans lien) arrive avant le sien dans le DOM. Un tweet cite n'ayant pas
+  // d'horodatage cliquable, une reponse qui cite le tweet ouvert ne matche pas.
   function isOpenedTweet(article) {
     const m = location.pathname.match(/^\/[A-Za-z0-9_]{1,15}\/status\/(\d+)/);
     if (!m) return false;
-    const link = article.querySelector("time")?.closest("a");
-    const own = link?.getAttribute("href")?.match(/\/status\/(\d+)/);
-    return !!own && own[1] === m[1];
+    return [...article.querySelectorAll("time")].some((time) => {
+      const own = time.closest("a")?.getAttribute("href")?.match(/\/status\/(\d+)/);
+      return !!own && own[1] === m[1];
+    });
   }
 
   // En pause on continue de resoudre et de marquer les tweets : ils restent
