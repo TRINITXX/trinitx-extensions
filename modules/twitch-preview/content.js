@@ -14,9 +14,11 @@
   const MARGIN = 8; // marge mini avec le bord du viewport (px)
   // On ne révèle la vidéo que lorsque le player a vraiment des frames à
   // l'écran. Si le signal "Playing" arrive sans frames signalées, on patiente
-  // PLAYING_GRACE ms (les frames sont alors quasi certainement là). MAX_REVEAL
-  // = ultime filet de sécurité (chaîne hors-ligne, messages non reçus...).
-  const PLAYING_GRACE = 700; // ms
+  // PLAYING_GRACE ms (les frames sont alors quasi certainement là). Constaté en
+  // sept. 2026 : le player n'envoie plus de stats vidéo -> c'est ce délai qui joue.
+  // MAX_REVEAL = ultime filet de sécurité (chaîne hors-ligne, messages non
+  // reçus...).
+  const PLAYING_GRACE = 250; // ms
   const MAX_REVEAL = 6000; // ms
 
   // Premier segment d'URL qui n'est PAS une chaîne (routes connues de Twitch).
@@ -106,13 +108,20 @@
   // même l'affichage), pour que l'image soit déjà en cache navigateur au moment
   // du show -> swap instantané, sans fond noir transitoire. Cache borné (les
   // thumbnails sont légères et le navigateur garde sa propre copie en cache).
-  const thumbPreload = new Map(); // channel -> HTMLImageElement
+  // Fraîcheur : l'URL Twitch d'une chaîne ne change jamais et le navigateur
+  // garde les images déjà chargées pour toute la vie de la page (qui reste
+  // ouverte des heures) -> sans paramètre anti-cache, on reverrait la capture
+  // du premier survol. Au-delà de THUMB_MAX_AGE, on repart d'une URL neuve.
+  const THUMB_MAX_AGE = 20000; // ms
+  const thumbPreload = new Map(); // channel -> { img, at }
   function preloadThumb(channel) {
-    let img = thumbPreload.get(channel);
-    if (img) return img;
-    img = new Image();
-    img.src = thumbUrl(channel);
-    thumbPreload.set(channel, img);
+    const now = Date.now();
+    const entry = thumbPreload.get(channel);
+    if (entry && now - entry.at < THUMB_MAX_AGE) return entry.img;
+    thumbPreload.delete(channel); // réinsertion -> fin de l'ordre FIFO
+    const img = new Image();
+    img.src = thumbUrl(channel) + "?t=" + now;
+    thumbPreload.set(channel, { img, at: now });
     if (thumbPreload.size > 40) {
       thumbPreload.delete(thumbPreload.keys().next().value); // FIFO
     }
@@ -384,7 +393,7 @@
       thumb.style.opacity = "0"; // pas de thumbnail (hors-ligne / 404)
       placeAndShow(anchorEl);
     };
-    thumb.src = thumbUrl(channel);
+    thumb.src = pre.src; // même URL (horodatée) que le préchargement
   }
 
   function hidePreview() {
