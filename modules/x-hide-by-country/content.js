@@ -256,23 +256,63 @@
     });
   }
 
+  // --- Conversations -------------------------------------------------------
+  // Quand X relie un tweet a sa reponse (fil, reponses, tweet auquel repond le
+  // tweet ouvert), un trait vertical suit l'avatar du tweet d'origine : le
+  // conteneur de l'avatar a alors plus d'un enfant. La reponse est dans la
+  // cellule suivante. On lit la structure et pas les tailles, qui tombent a 0
+  // une fois la cellule masquee.
+  const MAX_CHAIN = 20;
+  function replyBelow(article) {
+    const avatar = article.querySelector('[data-testid="Tweet-User-Avatar"]');
+    if (!avatar || avatar.parentElement.children.length < 2) return null;
+    const cell = article.closest(CELL_SELECTOR);
+    return cell?.nextElementSibling?.querySelector(TWEET_SELECTOR) || null;
+  }
+  function parentAbove(article) {
+    const cell = article.closest(CELL_SELECTOR);
+    const prev = cell?.previousElementSibling?.querySelector(TWEET_SELECTOR);
+    return prev && replyBelow(prev) === article ? prev : null;
+  }
+
+  // Un tweet d'un pays masque reste affiche quand une reponse reliee, elle-meme
+  // affichee, le suit : il sert de contexte. Si la reponse est masquee aussi,
+  // toute la conversation disparait (recursif le long du fil).
+  function shouldHide(article, depth = 0) {
+    if (isOpenedTweet(article)) return false;
+    const sn = getScreenName(article);
+    if (!sn || !decide(sn)) return false;
+    const reply = depth < MAX_CHAIN ? replyBelow(article) : null;
+    return !reply || shouldHide(reply, depth + 1);
+  }
+
+  // Le sort d'un tweet depend de sa reponse : quand celle-ci arrive dans le DOM
+  // ou que son pays est resolu, on re-evalue les tweets auxquels elle repond.
+  function refreshAbove(article) {
+    let parent = parentAbove(article);
+    for (let n = 0; parent && n < MAX_CHAIN; n++) {
+      setHidden(parent, shouldHide(parent));
+      parent = parentAbove(parent);
+    }
+  }
+
   // En pause on continue de resoudre et de marquer les tweets : ils restent
   // visibles (le CSS neutralise le marquage) et la reactivation est immediate,
   // sans attendre un appel AboutAccountQuery par auteur.
   function applyArticle(article) {
     const sn = getScreenName(article);
     if (!sn) return;
-    if (!countryOf.has(sn)) {
-      enqueue(sn); // pays inconnu -> on le resout (le tweet reste visible en attendant)
-      return;
-    }
-    setHidden(article, !isOpenedTweet(article) && decide(sn));
+    // Pays inconnu -> on le resout ; le tweet reste visible en attendant.
+    if (!countryOf.has(sn)) enqueue(sn);
+    setHidden(article, shouldHide(article));
+    refreshAbove(article);
   }
 
   function applyForUser(sn) {
-    const hide = decide(sn);
     document.querySelectorAll(TWEET_SELECTOR).forEach((a) => {
-      if (getScreenName(a) === sn) setHidden(a, hide && !isOpenedTweet(a));
+      if (getScreenName(a) !== sn) return;
+      setHidden(a, shouldHide(a));
+      refreshAbove(a);
     });
   }
 

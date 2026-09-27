@@ -142,6 +142,10 @@ expose désormais dans « About this account » (`account_based_in`). Cette info
   filtrés.
 - **Tweet ouvert toujours visible** : sur `/<user>/status/<id>`, le tweet principal
   n'est jamais masqué, seules ses réponses le sont.
+- **Contexte des réponses** : un tweet d'un pays masqué reste affiché quand X le
+  relie (trait vertical sous l'avatar) à une réponse affichée juste en dessous,
+  dans le fil comme sous un tweet ouvert. Si la réponse est masquée elle aussi,
+  toute la conversation disparaît.
 - Compte sans pays / privé / erreur API → **reste visible**.
 - **OFF par défaut** : contrairement aux autres modules, il génère du trafic API en
   arrière-plan (un appel par auteur non caché), donc opt-in volontaire.
