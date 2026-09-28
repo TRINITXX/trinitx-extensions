@@ -39,6 +39,8 @@
   let isAutoScrolling = false;
   let trackingPaused = false;
   let hasScrolledSinceLoad = false;
+  // User scrolled since the last successful save (see saveOnLeave).
+  let hasUnsavedScroll = false;
   // Set once the scroll-to-last-seen button actually found & jumped to the saved
   // tweet: the saved position has served its purpose, so the INITIAL_SAVE_DELAY_MS
   // grace window no longer needs to be honoured (we can start tracking right away).
@@ -302,7 +304,15 @@
     const href = getCurrentTopTweetHref();
     if (!href) return;
     lastSeenHref = href;
+    hasUnsavedScroll = false;
     saveLastSeenTweet();
+  }
+
+  // Leaving the tab (hidden / closed) only saves a position the user scrolled
+  // to and that isn't saved yet: merely passing through an older x.com tab
+  // (Ctrl+Tab) must not overwrite the position saved by the tab being read.
+  function saveOnLeave() {
+    if (hasUnsavedScroll) captureAndSave();
   }
 
   function onUserScroll() {
@@ -314,6 +324,7 @@
       hasScrolledSinceLoad = true;
     }
     if (!hasScrolledSinceLoad) return;
+    hasUnsavedScroll = true;
     clearTimeout(saveDebounceTimer);
     saveDebounceTimer = setTimeout(captureAndSave, SAVE_DEBOUNCE_MS);
   }
@@ -736,9 +747,14 @@
     // Persist immediately when the tab is hidden / closed (reliable on tab
     // switch, minimize, window close — unlike beforeunload).
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") captureAndSave();
+      if (document.visibilityState === "hidden") saveOnLeave();
     });
-    window.addEventListener("beforeunload", captureAndSave);
+    // Closing a background x.com tab (or the whole window) still fires
+    // beforeunload in it: its position is stale — already saved when it got
+    // hidden — and would overwrite the one saved by the tab actually being read.
+    window.addEventListener("beforeunload", () => {
+      if (document.visibilityState === "visible") saveOnLeave();
+    });
 
     // Handle SPA navigation (URL changes without page reload)
     let lastUrl = location.href;
