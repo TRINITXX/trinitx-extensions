@@ -6,3 +6,6 @@ desktop.ini
 # Logs / temp
 *.log
 *.tmp
+
+# Captures de verification
+.screenshots/

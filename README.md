@@ -24,6 +24,7 @@ extension, avec un popup pour activer/désactiver chacun.
 | **YouTube — Pas de traduction**  | youtube.com        | Garde titres, descriptions et audio en langue d'origine (intègre [YouTube-No-Translation](https://github.com/YouG-o/YouTube-No-Translation)) |
 | **YouTube — Meilleure qualité**  | youtube.com        | Force automatiquement la plus haute résolution disponible (1080p, 1440p, 4K…) sur chaque vidéo, au lieu de la qualité « Auto »               |
 | **Drapeaux emoji**               | toutes             | Windows n'a pas les glyphes de drapeaux et Chrome n'embarque pas de police de secours : les drapeaux s'affichent en deux lettres (`FR`, `MA`). Une police Twemoji limitée aux drapeaux est appliquée uniquement sur ces caractères, sans toucher au reste de la typographie |
+| **Capture de zone**              | toutes             | Clic droit → « Capturer une zone » : un clic sur un premier coin, défilement libre à la molette, un clic sur le coin opposé. La zone peut dépasser l'écran, y compris dans un panneau qui défile ou un cadre (artefacts claude.ai). Capture instantanée par redessin de la page ([snapdom](https://github.com/zumerlab/snapdom)) ; sur les listes qui déchargent leur contenu (X, Discord), repli sur un défilement automatique écran par écran. L'image est copiée dans le presse-papiers et enregistrée dans Téléchargements |
 | **Recharger les onglets**        | toutes             | Bouton qui recharge tous les onglets de la fenêtre active, avec filtres d'exclusion par patterns d'URL (joker `*`)                           |
 
 ## Installer
@@ -70,6 +71,10 @@ trinitx-extensions/
     │   ├── content.js              # detection canvas + FontFace + wrapping des drapeaux
     │   ├── TwemojiCountryFlags.woff2 # sous-ensemble Twemoji (drapeaux seuls, 78 Ko)
     │   └── NOTICE.md               # provenance + licences (Twemoji CC-BY 4.0)
+    ├── area-screenshot/            # ISOLATED, injecte a la demande (menu clic droit) : capture de zone
+    │   ├── content.js              # selection, redessin, repli defilement + recollage
+    │   ├── snapdom.js              # vendore depuis zumerlab/snapdom v3.2.0 (redessin du DOM)
+    │   └── snapdom.LICENSE         # MIT (attribution)
     ├── youtube-custom-speed/content.js  # monde ISOLATED, widget vitesse perso
     ├── youtube-best-quality/main.js     # monde MAIN, force la meilleure qualité (API du lecteur)
     ├── twitch-nosub/             # vendoré depuis besuper/TwitchNoSub (Apache-2.0)
@@ -308,7 +313,8 @@ pip-remote pour les détails).
 
 Composants vendorés sous leur propre licence : `modules/twitch-nosub/`
 (**Apache-2.0**, besuper), `modules/youtube-no-translation/` (**AGPL-3.0**,
-YouG-o) et `modules/flag-emoji/TwemojiCountryFlags.woff2` (graphismes
+YouG-o), `modules/area-screenshot/snapdom.js` (**MIT**, ZumerLab, voir
+`modules/area-screenshot/snapdom.LICENSE`) et `modules/flag-emoji/TwemojiCountryFlags.woff2` (graphismes
 **Twemoji**, **CC-BY 4.0**, via `country-flag-emoji-polyfill` de TalkJS, MIT —
 voir `modules/flag-emoji/NOTICE.md`). L'AGPL est un copyleft fort : si cette extension venait à être
 **distribuée**, la combinaison serait concernée. Pour un usage **perso non

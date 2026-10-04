@@ -7,7 +7,7 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["scripting", "tabs", "storage", "debugger", "contextMenus"],
+  "permissions": ["scripting", "tabs", "storage", "debugger", "contextMenus", "activeTab", "downloads"],
   "host_permissions": [
     "*://*.youtube.com/*",
     "*://*.youtube-nocookie.com/*",

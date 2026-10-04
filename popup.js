@@ -19,6 +19,7 @@ const DEFAULT_MODULES = {
   xMuteSelection: true,
   xHideByCountry: false,
   flagEmoji: true,
+  areaScreenshot: true,
 };
 
 function showStatus(msg) {

@@ -37,6 +37,8 @@ const DEFAULT_MODULES = {
   xHideByCountry: false,
   // Repare les drapeaux emoji affiches en lettres (Windows) : ON par defaut.
   flagEmoji: true,
+  // Menu contextuel "Capturer une zone" (zone plus haute que l'ecran) : ON.
+  areaScreenshot: true,
 };
 
 // Modules a base de content scripts (enregistres seulement si actives)
@@ -612,34 +614,45 @@ async function isMuteModuleEnabled() {
 // (Re)cree le menu selon l'etat du module. removeAll d'abord : idempotent et
 // evite l'erreur "duplicate id" apres un redemarrage du service worker.
 //
+// Porte aussi le menu "Capturer une zone" : removeAll() efface TOUS les menus
+// de l'extension, donc un seul endroit doit les recreer.
+//
 // SERIALISE : plusieurs declencheurs (onInstalled + storage.onChanged des ecritures
-// modules/masterEnabled) appellent syncMuteMenu() quasi simultanement. Sans lock,
+// modules/masterEnabled) appellent syncContextMenus() quasi simultanement. Sans lock,
 // deux removeAll()/create() s'entrelacent -> "Cannot create item with duplicate id".
 // On enchaine donc les appels sur une meme promesse. Le callback de create() lit
 // runtime.lastError pour ne pas laisser d'erreur "non lue" dans la console.
-let muteMenuSync = Promise.resolve();
-function syncMuteMenu() {
-  muteMenuSync = muteMenuSync.then(doSyncMuteMenu, doSyncMuteMenu);
-  return muteMenuSync;
+let menuSync = Promise.resolve();
+function syncContextMenus() {
+  menuSync = menuSync.then(doSyncContextMenus, doSyncContextMenus);
+  return menuSync;
 }
-async function doSyncMuteMenu() {
+function createMenu(props) {
+  return new Promise((resolve) => {
+    chrome.contextMenus.create(props, () => {
+      void chrome.runtime.lastError; // absorbe un eventuel "duplicate id"
+      resolve();
+    });
+  });
+}
+async function doSyncContextMenus() {
   try {
     await chrome.contextMenus.removeAll();
   } catch {}
   if (await isMuteModuleEnabled()) {
-    await new Promise((resolve) => {
-      chrome.contextMenus.create(
-        {
-          id: MUTE_MENU_ID,
-          title: "Masquer « %s » sur X",
-          contexts: ["selection"],
-          documentUrlPatterns: ["*://x.com/*"],
-        },
-        () => {
-          void chrome.runtime.lastError; // absorbe un eventuel "duplicate id"
-          resolve();
-        },
-      );
+    await createMenu({
+      id: MUTE_MENU_ID,
+      title: "Masquer « %s » sur X",
+      contexts: ["selection"],
+      documentUrlPatterns: ["*://x.com/*"],
+    });
+  }
+  if (await isAreaModuleEnabled()) {
+    await createMenu({
+      id: AREA_MENU_ID,
+      title: "Capturer une zone",
+      contexts: ["page", "frame", "selection", "link", "image", "video"],
+      documentUrlPatterns: ["http://*/*", "https://*/*"],
     });
   }
 }
@@ -714,6 +727,128 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // Si l'utilisateur ferme lui-meme la fenetre du job, on nettoie l'entree.
 chrome.tabs.onRemoved.addListener((tabId) => {
   clearMuteJob(tabId).catch(() => {});
+});
+
+// ===========================================================================
+// MODULE Capture de zone — menu clic droit, selection dans la page
+// ===========================================================================
+// Le content script est injecte a la demande (pas enregistre : il ne sert qu'au
+// clic sur le menu). Il gere la selection, fait defiler la zone ecran par
+// ecran et demande ici une prise par ecran, qu'il recolle de son cote.
+const AREA_MENU_ID = "area-screenshot";
+
+async function isAreaModuleEnabled() {
+  const mods = await getModules();
+  return (await isMasterEnabled()) && !!mods.areaScreenshot;
+}
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== AREA_MENU_ID || !tab || tab.id == null) return;
+  if (!(await isAreaModuleEnabled())) return;
+  try {
+    // Tous les cadres : le contenu d'une page peut vivre dans une iframe.
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      // snapdom (vendore, MIT) d'abord : il definit window.snapdom.
+      files: ["modules/area-screenshot/snapdom.js", "modules/area-screenshot/content.js"],
+    });
+  } catch (e) {
+    console.warn(TAG, "capture de zone: injection echec:", e.message);
+    flashBadge("!", "#cc3333");
+  }
+});
+
+// Onglets ou le debugger est attache le temps d'une capture : chaque ecran y
+// est pris par Page.captureScreenshot, sans la limite de ~2 appels/s de
+// captureVisibleTab. (captureBeyondViewport, en une prise, faisait "zoomer" la
+// page a l'ecran pendant 1 a 3 s : ecarte.)
+const areaDbgTabs = new Set();
+
+function areaFileName(url) {
+  let host = "page";
+  try {
+    host = new URL(url).hostname || host;
+  } catch {}
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  const stamp =
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_` +
+    `${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+  return `capture_${host}_${stamp}.png`;
+}
+
+async function captureAreaScreen(tab) {
+  if (areaDbgTabs.has(tab.id)) {
+    try {
+      const { data } = await dbgSend(tab.id, "Page.captureScreenshot", { format: "png" });
+      return { dataUrl: "data:image/png;base64," + data, fast: true };
+    } catch (e) {
+      console.warn(TAG, "capture de zone: debugger indisponible:", e.message);
+      areaDbgTabs.delete(tab.id);
+    }
+  }
+  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+  return { dataUrl, fast: false };
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || !sender.tab) return;
+  const tabId = sender.tab.id;
+  // Debut / fin de capture : attache / detache le debugger. Echec (DevTools
+  // ouvert...) -> repli silencieux sur captureVisibleTab, plus lent.
+  if (msg.type === "area-session-start") {
+    let reason = "";
+    dbgAttach(tabId)
+      .then(() => areaDbgTabs.add(tabId))
+      .catch((e) => {
+        reason = e.message;
+        console.warn(TAG, "capture de zone: attach echec:", e.message);
+      })
+      .finally(() => sendResponse({ fast: areaDbgTabs.has(tabId), reason }));
+    return true; // reponse asynchrone
+  }
+  // Suivi d'etapes d'une iframe, recopie dans la console du cadre principal.
+  if (msg.type === "area-log") {
+    chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
+    return;
+  }
+  if (msg.type === "area-session-end") {
+    if (areaDbgTabs.delete(tabId)) dbgDetach(tabId);
+    return;
+  }
+  // Relais entre les cadres de l'onglet (prise de la selection, fin).
+  if (msg.type === "area-broadcast") {
+    chrome.tabs.sendMessage(sender.tab.id, msg).catch(() => {});
+    return;
+  }
+  // Copie reessayee par le cadre principal (iframe sans focus).
+  if (msg.type === "area-copy") {
+    chrome.tabs
+      .sendMessage(tabId, msg, { frameId: 0 })
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  // Enregistrement dans Telechargements. Une data: URL passe (verifie a
+  // 27 Mo) ; nom d'apres le site de l'onglet, pas celui d'une iframe.
+  if (msg.type === "area-save") {
+    chrome.downloads
+      .download({
+        url: msg.dataUrl,
+        filename: areaFileName(sender.tab.url),
+        conflictAction: "uniquify",
+      })
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ ok: false, reason: e.message }));
+    return true;
+  }
+  if (msg.type === "area-capture-visible") {
+    const t = Date.now();
+    captureAreaScreen(sender.tab)
+      .then((res) => sendResponse({ ...res, ms: Date.now() - t }))
+      .catch((e) => sendResponse({ reason: e.message }));
+    return true;
+  }
 });
 
 // ===========================================================================
@@ -1173,7 +1308,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== "local" || (!changes.modules && !changes.masterEnabled)) return;
   await syncRegistrations();
-  await syncMuteMenu();
+  await syncContextMenus();
 
   // Audio solo Twitch : vit dans le service worker, donc rien a (des)enregistrer
   // — on applique ou on rend le son selon l'etat effectif du module.
@@ -1208,13 +1343,13 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.local.set({ masterEnabled: true });
   }
   await syncRegistrations();
-  await syncMuteMenu();
+  await syncContextMenus();
   if (await isTwitchSoloEnabled()) scheduleTwSolo(applyTwitchSolo);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await syncRegistrations();
-  await syncMuteMenu();
+  await syncContextMenus();
   if (await isTwitchSoloEnabled()) scheduleTwSolo(applyTwitchSolo);
 });
 
