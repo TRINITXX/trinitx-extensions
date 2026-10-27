@@ -31,7 +31,13 @@
     /* Boutons flottants en bas a droite (Grok, messagerie) : hors flux,
        les masquer ne decale rien. */
     html:not(.${OFF_CLASS}) [data-testid="GrokDrawer"],
-    html:not(.${OFF_CLASS}) [data-testid="chat-drawer-root"] {
+    html:not(.${OFF_CLASS}) [data-testid="chat-drawer-root"],
+    /* Pastille bleue « ↑ avatars a posté » au-dessus du fil. Ciblee par son
+       data-testid stable : les regles AdBlock visent les classes r-xxxx, que
+       X regenere a chaque build, d'ou leur retour au bout de quelques jours.
+       Le bouton seul sert de repli si X retire le role="status". */
+    html:not(.${OFF_CLASS}) [role="status"]:has([data-testid="pillLabel"]),
+    html:not(.${OFF_CLASS}) button:has([data-testid="pillLabel"]) {
       visibility: hidden !important;
     }
 
