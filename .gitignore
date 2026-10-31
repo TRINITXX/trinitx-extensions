@@ -9,3 +9,7 @@ desktop.ini
 
 # Captures de verification
 .screenshots/
+
+# Programme Windows de la fenetre PiP (genere par native-host/install.ps1)
+native-host/*.exe
+native-host/com.trinitx.pip_window.json

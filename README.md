@@ -5,7 +5,7 @@ extension, avec un popup pour activer/désactiver chacun.
 
 | Module                           | Site(s)            | Ce qu'il fait                                                                                                                                |
 | -------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PiP hotkey + mute**            | Twitch             | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet Twitch consulté (même depuis un autre site, même Chrome en arrière-plan), `Ctrl+Shift+2` mute/démute l'onglet Twitch en PiP, sinon le dernier onglet Twitch consulté. Aucun autre site n'est jamais touché |
+| **PiP hotkey + mute**            | Twitch             | `Ctrl+Shift+1` ouvre/ferme le PiP du dernier onglet Twitch consulté (même depuis un autre site, même Chrome en arrière-plan), dans une fenêtre PiP maison : pause, muet, volume, chat en lecture seule sous la vidéo (badges, emotes Twitch, 7TV, BTTV, FFZ, réponses avec le message d'origine au-dessus) qui ne redimensionne jamais la fenêtre, prend toute la hauteur en trop (jamais de bandes noires en haut et en bas) et se cache seulement quand la fenêtre est à sa largeur maximale, chat toujours collé en bas, fenêtre jamais redimensionnée toute seule, déplaçable en tirant la vidéo, bouton épingle qui la remet à sa place et sa taille retenues (clic droit : retenir la place actuelle), qualité maximale forcée ; le bouton PiP de BTTV ouvre aussi cette fenêtre, sans PiP classique. `Ctrl+Shift+2` mute/démute l'onglet Twitch en PiP, sinon le dernier onglet Twitch consulté. Aucun autre site n'est jamais touché |
 | **X — Tri par likes**            | x.com, twitter.com | Trie les réponses par nombre de likes                                                                                                        |
 | **X — Auto-scroll**              | x.com              | Reprend ta position de lecture sur le fil                                                                                                    |
 | **X — Block en 1 clic**          | x.com              | Icône discrète sur chaque tweet pour bloquer l'auteur en un clic (avec annulation)                                                           |
@@ -35,6 +35,12 @@ extension, avec un popup pour activer/désactiver chacun.
 2. **Charger l'extension non empaquetée** → dossier `trinitx-extensions`.
 3. Accepte la permission de débogage (nécessaire pour le PiP à distance).
 4. Vérifie la portée **Global** des 2 raccourcis dans `chrome://extensions/shortcuts`.
+5. Pour que l'épingle de la fenêtre PiP puisse l'agrandir (Chrome bloque les
+   agrandissements faits par une extension à un quart de l'écran), installe
+   une fois le petit programme Windows qui la place :
+   `powershell -ExecutionPolicy Bypass -File native-host\install.ps1`
+   (compile `pip-window.exe` avec le compilateur C# de Windows et l'enregistre
+   pour l'extension, sans droits admin). À relancer si le dossier du dépôt change.
 
 ## Le popup
 

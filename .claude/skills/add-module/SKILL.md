@@ -5,7 +5,7 @@ description: Scaffold a new toggleable content-script module for the TRINITX Chr
 
 # Add a module to the TRINITX extension
 
-Scaffolds a new **content-script** module following the established pattern. For PiP-style (keyboard/`chrome.debugger`) or popup-action modules, do NOT use this — those live directly in `background.js`/`popup.js`, not in `CONTENT_MODULES`.
+Scaffolds a new **content-script** module following the established pattern. For keyboard/`chrome.debugger` or popup-action modules, do NOT use this — their logic lives in `background.js`/`popup.js` (the PiP module only adds content scripts to `CONTENT_MODULES` on top of that).
 
 Read `AGENTS.md` first for the architecture (dynamic runtime registration, no `content_scripts` in the manifest).
 
@@ -55,6 +55,8 @@ Add an entry to `CONTENT_MODULES`:
   // allFrames: true,       // only if needed
 },
 ```
+
+A module that needs scripts in two worlds (e.g. ISOLATED + MAIN) uses an array of such entries under the same key, each with its own `id` (see `pip`).
 
 And add `<key>: true,` to `DEFAULT_MODULES` in the same file.
 

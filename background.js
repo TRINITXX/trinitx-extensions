@@ -41,8 +41,28 @@ const DEFAULT_MODULES = {
   areaScreenshot: true,
 };
 
-// Modules a base de content scripts (enregistres seulement si actives)
+// Modules a base de content scripts (enregistres seulement si actives).
+// Une entree peut etre un tableau quand le module a besoin de deux mondes.
 const CONTENT_MODULES = {
+  // Le module PiP (raccourcis, plus bas) a aussi des content scripts sur
+  // Twitch : la fenetre PiP maison (monde isole) et le lecteur (monde MAIN :
+  // qualite, volume, bouton PiP de BTTV detourne vers la fenetre maison).
+  pip: [
+    {
+      id: "pip-doc-window",
+      js: ["modules/pip/twitch-chat.js", "modules/pip/doc-pip.js"],
+      matches: ["*://*.twitch.tv/*"],
+      world: "ISOLATED",
+      runAt: "document_idle",
+    },
+    {
+      id: "pip-page-player",
+      js: ["modules/pip/player.js"],
+      matches: ["*://*.twitch.tv/*"],
+      world: "MAIN",
+      runAt: "document_start",
+    },
+  ],
   twitchNoSub: {
     id: "twitch-nosub",
     js: [
@@ -231,37 +251,45 @@ async function syncRegistrations() {
   const existingIds = new Set(existing.map((s) => s.id));
 
   for (const key of Object.keys(CONTENT_MODULES)) {
-    const def = CONTENT_MODULES[key];
-    const shouldBe = master && !!mods[key];
-    const isReg = existingIds.has(def.id);
-    try {
-      if (shouldBe && !isReg) {
-        await chrome.scripting.registerContentScripts([
-          {
-            id: def.id,
-            js: def.js,
-            matches: def.matches,
-            world: def.world,
-            runAt: def.runAt,
-            allFrames: !!def.allFrames,
-            persistAcrossSessions: true,
-          },
-        ]);
-        console.log(TAG, "module enregistre:", def.id);
-      } else if (!shouldBe && isReg) {
-        await chrome.scripting.unregisterContentScripts({ ids: [def.id] });
-        console.log(TAG, "module retire:", def.id);
-      }
-    } catch (e) {
-      console.warn(TAG, "sync", def.id, "echec:", e.message);
+    for (const def of [].concat(CONTENT_MODULES[key])) {
+      await syncRegistration(def, master && !!mods[key], existingIds);
     }
+  }
+}
+
+async function syncRegistration(def, shouldBe, existingIds) {
+  const isReg = existingIds.has(def.id);
+  try {
+    if (shouldBe && !isReg) {
+      await chrome.scripting.registerContentScripts([
+        {
+          id: def.id,
+          js: def.js,
+          matches: def.matches,
+          world: def.world,
+          runAt: def.runAt,
+          allFrames: !!def.allFrames,
+          persistAcrossSessions: true,
+        },
+      ]);
+      console.log(TAG, "module enregistre:", def.id);
+    } else if (!shouldBe && isReg) {
+      await chrome.scripting.unregisterContentScripts({ ids: [def.id] });
+      console.log(TAG, "module retire:", def.id);
+    }
+  } catch (e) {
+    console.warn(TAG, "sync", def.id, "echec:", e.message);
   }
 }
 
 // Injection immediate dans les onglets deja ouverts (quand on active un module)
 async function injectIntoOpenTabs(key) {
-  const def = CONTENT_MODULES[key];
-  if (!def) return;
+  for (const def of [].concat(CONTENT_MODULES[key] || [])) {
+    await injectDefIntoOpenTabs(def);
+  }
+}
+
+async function injectDefIntoOpenTabs(def) {
   let tabs = [];
   try {
     tabs = await chrome.tabs.query({ url: def.matches });
@@ -291,6 +319,10 @@ let pipBusy = false;
 
 // Injecte (chrome.scripting) : ferme le PiP s'il existe, sinon signale la video.
 function probeOrClose() {
+  if (window.documentPictureInPicture && documentPictureInPicture.window) {
+    documentPictureInPicture.window.close(); // pagehide remet la video en place
+    return "closed";
+  }
   if (document.pictureInPictureElement) {
     document.exitPictureInPicture();
     return "closed";
@@ -301,7 +333,42 @@ function probeOrClose() {
   return hasVideo ? "has-video" : "no-video";
 }
 
-// Evaluee via debugger AVEC faux geste pour OUVRIR le PiP.
+// Fenetre PiP « Document » (video + bouton chat), injectee juste avant
+// l'ouverture. Seul notre monde isole definit __trinitxDocPip : les autres
+// contextes repondent "skip".
+const DOC_PIP_FILES = CONTENT_MODULES.pip[0].js;
+const DOC_PIP_EXPRESSION = `(async () => {
+  if (!window.__trinitxDocPip) return { status: 'skip' };
+  try {
+    return await window.__trinitxDocPip.open();
+  } catch (e) {
+    return { status: 'error', error: (e && e.name + ': ' + e.message) || String(e) };
+  }
+})()`;
+
+async function injectDocPip(tabId) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: DOC_PIP_FILES });
+  } catch (e) {
+    console.warn(TAG, "injection Document PiP impossible:", e.message);
+    return false;
+  }
+  // Qualite max et volume pendant le PiP : seul le monde MAIN atteint le
+  // lecteur Twitch. Sans lui, la fenetre marche quand meme.
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["modules/pip/player.js"],
+      world: "MAIN",
+    });
+  } catch (e) {
+    console.warn(TAG, "player.js non injecte:", e.message);
+  }
+  return true;
+}
+
+// Evaluee via debugger AVEC faux geste pour OUVRIR le PiP natif (repli quand
+// le Document PiP echoue).
 const OPEN_EXPRESSION = `(async () => {
   try {
     if (document.pictureInPictureElement) return { status: 'opened' };
@@ -310,9 +377,12 @@ const OPEN_EXPRESSION = `(async () => {
     vids.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight);
     const v = vids[0];
     if (!v) return { status: 'no-video' };
+    // Marque lue par doc-pip.js : ce PiP natif-la ne doit pas etre remplace.
+    document.documentElement.setAttribute('data-trinitx-native-pip', '');
     await v.requestPictureInPicture();
     return { status: 'opened' };
   } catch (e) {
+    document.documentElement.removeAttribute('data-trinitx-native-pip');
     return { status: 'error', error: (e && e.name + ': ' + e.message) || String(e) };
   }
 })()`;
@@ -381,7 +451,42 @@ function dbgSend(tabId, method, params) {
   );
 }
 
-async function openPipViaDebugger(tabId) {
+// Evalue l'expression avec faux geste dans chaque contexte (page, mondes
+// isoles) jusqu'au premier qui ouvre ou echoue franchement.
+async function evaluateInContexts(tabId, contextIds, expression) {
+  let last = { status: "skip" };
+  for (const contextId of contextIds) {
+    const params = {
+      expression,
+      userGesture: true,
+      awaitPromise: true,
+      returnByValue: true,
+    };
+    if (contextId !== undefined) params.contextId = contextId;
+    let res;
+    try {
+      // Une promesse de la page qui ne repond jamais bloquerait pipBusy, donc
+      // le raccourci, jusqu'au redemarrage du service worker.
+      res = await Promise.race([
+        dbgSend(tabId, "Runtime.evaluate", params),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("pas de reponse en 10 s")), 10000),
+        ),
+      ]);
+    } catch (e) {
+      // Une erreur de transport (iframe partie) ne masque pas une vraie reponse.
+      if (last.status === "skip") last = { status: "error", error: e.message };
+      continue;
+    }
+    const val = res && res.result && res.result.value;
+    if (!val) continue;
+    if (val.status === "opened" || val.status === "error") return val;
+    if (val.status !== "skip") last = val;
+  }
+  return last;
+}
+
+async function openPipViaDebugger(tabId, withDocPip) {
   const contexts = [];
   const onEvent = (src, method, params) => {
     if (src.tabId === tabId && method === "Runtime.executionContextCreated") {
@@ -405,33 +510,215 @@ async function openPipViaDebugger(tabId) {
     await dbgSend(tabId, "Runtime.enable");
     await new Promise((r) => setTimeout(r, 200));
     const ids = contexts.length ? contexts.map((c) => c.id) : [undefined];
-    let last = { status: "no-video" };
-    for (const contextId of ids) {
-      const params = {
-        expression: OPEN_EXPRESSION,
-        userGesture: true,
-        awaitPromise: true,
-        returnByValue: true,
-      };
-      if (contextId !== undefined) params.contextId = contextId;
-      let res;
-      try {
-        res = await dbgSend(tabId, "Runtime.evaluate", params);
-      } catch (e) {
-        last = { status: "error", error: e.message };
-        continue;
-      }
-      const val = res && res.result && res.result.value;
-      if (val) last = val;
-      if (val && (val.status === "opened" || val.status === "error"))
-        return val;
+    if (withDocPip) {
+      const doc = await evaluateInContexts(tabId, ids, DOC_PIP_EXPRESSION);
+      // no-video : pas de video dans la frame du haut. Pas de repli natif, qui
+      // prendrait l'apercu au survol (iframe de twitch-preview).
+      if (doc.status === "opened" || doc.status === "no-video") return doc;
+      console.warn(TAG, "Document PiP echoue, repli PiP natif:", doc.status, doc.error || "");
     }
-    return last;
+    const res = await evaluateInContexts(tabId, ids, OPEN_EXPRESSION);
+    return res.status === "skip" ? { status: "no-video" } : res;
   } finally {
     await dbgDetach(tabId);
     chrome.debugger.onEvent.removeListener(onEvent);
   }
 }
+
+// Deplace / redimensionne la fenetre PiP « Document » (demandes de doc-pip.js :
+// glisser la video, recalage en 16/9). La page ne peut pas deplacer sa
+// fenetre PiP (moveBy ignore), chrome.windows si : il la liste (type
+// "normal", alwaysOnTop). Grandir reste plafonne par Chrome a 25 % de la
+// surface de l'ecran, comme pour la page : doc-pip.js en tient compte.
+// Les demandes arrivent a chaque image pendant un glisser : on ne garde que la
+// derniere tant qu'une mise a jour est en cours.
+let docPipWindowId = null;
+let docPipBoundsPending = null;
+let docPipBoundsRunning = false;
+
+async function findDocPipWindow(hint) {
+  const wins = (await chrome.windows.getAll()).filter((w) => w.alwaysOnTop);
+  const dist = (w) =>
+    Math.abs(w.left - hint.left) + Math.abs(w.top - hint.top) +
+    Math.abs(w.width - hint.width) + Math.abs(w.height - hint.height);
+  wins.sort((a, b) => dist(a) - dist(b));
+  return wins[0] || null;
+}
+
+async function updateDocPipWindow(bounds, hint) {
+  if (docPipWindowId != null) {
+    try {
+      await chrome.windows.update(docPipWindowId, bounds);
+      return;
+    } catch (e) {
+      if (!/No window with id/i.test(e.message)) throw e;
+    }
+  }
+  // Premiere demande, ou fenetre PiP refermee puis rouverte : la retrouver.
+  const win = await findDocPipWindow(hint);
+  docPipWindowId = win ? win.id : null;
+  if (!win) throw new Error("fenetre PiP introuvable");
+  await chrome.windows.update(win.id, bounds);
+}
+
+// Une erreur (fenetre a moins de 50 % sur l'ecran : Chrome refuse) ne bloque
+// pas la demande suivante.
+async function applyDocPipBounds() {
+  if (docPipBoundsRunning) return;
+  docPipBoundsRunning = true;
+  try {
+    while (docPipBoundsPending) {
+      const { bounds, hint } = docPipBoundsPending;
+      docPipBoundsPending = null;
+      try {
+        await updateDocPipWindow(bounds, hint);
+      } catch (e) {
+        console.warn(TAG, "fenetre PiP non deplacee:", e.message);
+      }
+    }
+  } finally {
+    docPipBoundsRunning = false;
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || msg.type !== "doc-pip-bounds") return;
+  const tab = sender.tab;
+  if (!tab || !isTwitchUrl(tab.url) || !msg.bounds || !msg.hint) return;
+  const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : undefined);
+  const bounds = {};
+  for (const k of ["left", "top", "width", "height"]) {
+    const v = int(msg.bounds[k]);
+    if (v !== undefined && Math.abs(v) <= 20000) bounds[k] = v;
+  }
+  const hint = {};
+  for (const k of ["left", "top", "width", "height"]) hint[k] = int(msg.hint[k]) || 0;
+  if (!Object.keys(bounds).length) return;
+  const dpr = Number(msg.dpr);
+  if (msg.native && Object.keys(bounds).length === 4 && dpr > 0 && dpr <= 8) {
+    placeByNativeHost(bounds, dpr, hint);
+    return;
+  }
+  // Fusion : une taille et une position en attente s'appliquent toutes les deux.
+  const waiting = docPipBoundsPending ? docPipBoundsPending.bounds : {};
+  docPipBoundsPending = { bounds: { ...waiting, ...bounds }, hint };
+  applyDocPipBounds();
+});
+
+// Bouton epingle : la place retenue est souvent plus grande que la fenetre, et
+// Chrome plafonne tout agrandissement par chrome.windows a 25 % de l'ecran.
+// Le programme Windows de native-host/ (SetWindowPos) n'a que le plafond de
+// 80 % d'un redimensionnement a la souris. Pas installe : chrome.windows.
+const PIP_NATIVE_HOST = "com.trinitx.pip_window";
+
+function placeByNativeHost(bounds, dpr, hint) {
+  // En unites de Chrome, avec la place actuelle : le programme convertit en
+  // pixels Windows par le rectangle actuel de la fenetre (decalage du cadre).
+  const request = {
+    ...bounds,
+    nowLeft: hint.left,
+    nowTop: hint.top,
+    nowWidth: hint.width,
+    nowHeight: hint.height,
+    dpr,
+  };
+  chrome.runtime
+    .sendNativeMessage(PIP_NATIVE_HOST, request)
+    .then((r) => {
+      if (!r || !r.ok) throw new Error((r && r.error) || "pas de reponse");
+    })
+    .catch((e) => {
+      console.warn(TAG, "programme Windows de la fenetre PiP indisponible, repli chrome.windows:", e.message);
+      docPipBoundsPending = { bounds, hint };
+      applyDocPipBounds();
+    });
+}
+
+// Fenetre PiP : rend le clavier a la fenetre du dessous apres son ouverture
+// et apres chaque clic dedans. Sinon Ctrl+W (reserve par Chrome) ferme la
+// fenetre PiP au lieu de l'onglet. Sous Windows, Chrome active alors la
+// fenetre visible suivante dans l'empilement : celle d'avant le clic.
+// Seulement Deactivate : activer une autre fenetre par programme a deplace et
+// redimensionne des fenetres pendant les tests (31/10/2026), retirer le focus
+// a la fenetre PiP non.
+async function releaseDocPipFocus(hint) {
+  try {
+    let win = null;
+    if (docPipWindowId != null) win = await chrome.windows.get(docPipWindowId).catch(() => null);
+    if (!win) {
+      win = await findDocPipWindow(hint);
+      docPipWindowId = win ? win.id : null;
+    }
+    if (win && win.focused) await chrome.windows.update(win.id, { focused: false });
+  } catch (e) {
+    console.warn(TAG, "focus PiP non rendu:", e.message);
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || msg.type !== "doc-pip-blur") return;
+  const tab = sender.tab;
+  if (!tab || !isTwitchUrl(tab.url) || !msg.hint) return;
+  const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : 0);
+  const hint = {};
+  for (const k of ["left", "top", "width", "height"]) hint[k] = int(msg.hint[k]);
+  releaseDocPipFocus(hint);
+});
+
+// PiP natif ouvert depuis la page Twitch (bouton de 7TV, BTTV...) : remplace
+// par la fenetre maison. Le PiP natif a consomme le clic, donc on rouvre avec
+// le faux geste du debugger, comme le raccourci.
+async function replaceNativePip(tabId) {
+  // Module coupe : l'onglet garde peut-etre doc-pip.js jusqu'a son rechargement.
+  const mods = await getModules();
+  if (!mods.pip || !(await isMasterEnabled()) || pipBusy) return;
+  pipBusy = true;
+  try {
+    if (!(await injectDocPip(tabId))) return;
+    const res = await openPipViaDebugger(tabId, true);
+    if (res.status !== "opened") {
+      console.warn(TAG, "PiP natif non remplace:", res.status, res.error || "");
+    }
+  } finally {
+    pipBusy = false;
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || msg.type !== "doc-pip-from-native") return;
+  const tab = sender.tab;
+  if (!tab || tab.id == null || !isTwitchUrl(tab.url)) return;
+  replaceNativePip(tab.id);
+});
+
+// Bouton muet de la fenetre PiP : coupe le son de l'onglet, comme Ctrl+Shift+2.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || (msg.type !== "doc-pip-mute" && msg.type !== "doc-pip-mute-state")) return;
+  const tab = sender.tab;
+  if (!tab || tab.id == null || !isTwitchUrl(tab.url)) return;
+  (async () => {
+    let muted = !!(tab.mutedInfo && tab.mutedInfo.muted);
+    if (msg.type === "doc-pip-mute") {
+      // Etat voulu par la fenetre PiP (jamais « inverser » : rafales du curseur).
+      muted = typeof msg.muted === "boolean" ? msg.muted : !muted;
+      await chrome.tabs.update(tab.id, { muted });
+    }
+    sendResponse({ muted });
+  })().catch((e) => {
+    console.warn(TAG, "muet PiP echoue:", e.message);
+    sendResponse(null);
+  });
+  return true;
+});
+
+// Son d'un onglet Twitch coupe ou remis (raccourci, audio solo, menu de
+// l'onglet) : l'icone de la fenetre PiP suit. Sans PiP ouvert, rien n'ecoute.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!changeInfo.mutedInfo || !isTwitchUrl(tab.url)) return;
+  chrome.tabs
+    .sendMessage(tabId, { type: "doc-pip-muted", muted: changeInfo.mutedInfo.muted })
+    .catch(() => {});
+});
 
 function flashBadge(text, color) {
   chrome.action.setBadgeBackgroundColor({ color });
@@ -464,7 +751,8 @@ async function handleTogglePip() {
       flashBadge("off", "#666666");
       return;
     }
-    const res = await openPipViaDebugger(target.tabId);
+    const withDocPip = await injectDocPip(target.tabId);
+    const res = await openPipViaDebugger(target.tabId, withDocPip);
     if (res.status === "opened") {
       flashBadge("PiP", "#33aa33");
     } else {
