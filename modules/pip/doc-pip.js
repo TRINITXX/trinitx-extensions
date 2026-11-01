@@ -337,15 +337,20 @@
   // Place retenue : clic = la fenetre y retourne (position et taille), clic
   // droit = retenir la place actuelle. Grandir reste plafonne par Chrome a
   // 25 % de la surface de l'ecran ; la place par defaut est en dessous.
-  function enableLayout(s, pinBtn) {
-    const { win } = s;
+  // La fenetre va a la place retenue (epingle, arrivee sur un onglet x.com).
+  async function goToSavedPlace(s) {
     const valid = (b) =>
       b && ["left", "top", "width", "height"].every((k) => Number.isFinite(b[k])) && b.width >= 100 && b.height >= 100;
-    pinBtn.addEventListener("click", async () => {
-      const { [LAYOUT_KEY]: saved } = await chrome.storage.local.get(LAYOUT_KEY);
-      if (state !== s) return;
-      const b = valid(saved) ? saved : DEFAULT_LAYOUT;
-      setBounds(win, { left: b.left, top: b.top, width: b.width, height: b.height }, true);
+    const { [LAYOUT_KEY]: saved } = await chrome.storage.local.get(LAYOUT_KEY);
+    if (state !== s) return;
+    const b = valid(saved) ? saved : DEFAULT_LAYOUT;
+    setBounds(s.win, { left: b.left, top: b.top, width: b.width, height: b.height }, true);
+  }
+
+  function enableLayout(s, pinBtn) {
+    const { win } = s;
+    pinBtn.addEventListener("click", () => {
+      goToSavedPlace(s).catch((e) => console.warn("[DocPiP] place retenue introuvable:", e.message));
     });
     pinBtn.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -514,8 +519,13 @@
   }
 
   // Son de l'onglet coupe ou remis ailleurs (raccourci, audio solo) : l'icone suit.
+  // Arrivee sur un onglet x.com (background.js) : la fenetre va a la place retenue.
   chrome.runtime.onMessage.addListener((msg) => {
-    if (msg && msg.type === "doc-pip-muted" && state && state.showMuted) state.showMuted(!!msg.muted);
+    if (!msg || !state) return;
+    if (msg.type === "doc-pip-muted" && state.showMuted) state.showMuted(!!msg.muted);
+    if (msg.type === "doc-pip-pin") {
+      goToSavedPlace(state).catch((e) => console.warn("[DocPiP] place retenue introuvable:", e.message));
+    }
   });
 
   const isAlive = () => {

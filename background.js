@@ -1168,6 +1168,61 @@ function isTwitchUrl(url) {
   }
 }
 
+// ===========================================================================
+// MODULE PiP — arrivee sur un onglet x.com : la fenetre PiP va a sa place
+// ===========================================================================
+// Meme effet que le bouton epingle (Alexis, 01/11/2026). Seulement quand on
+// ARRIVE sur x.com : changement d'onglet, ou onglet actif qui passe d'un autre
+// site a x.com. Jamais au retour du focus ni a une navigation dans x.com : un
+// clic dans la fenetre PiP rend le focus a l'onglet, et une fenetre deplacee
+// a la main sur X ne doit pas sauter a chaque page.
+function isXUrl(url) {
+  try {
+    return /(^|\.)(x|twitter)\.com$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+// Dernier site vu par onglet, pour reconnaitre l'arrivee sur x.com.
+// Perdu quand le service worker s'endort : au pire, une mise en place de trop.
+const tabWasX = new Map();
+
+async function pinDocPipOnX() {
+  const mods = await getModules();
+  if (!mods.pip || !(await isMasterEnabled())) return;
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: PIP_TWITCH_MATCH });
+  } catch {
+    return;
+  }
+  // Seul l'onglet qui a la fenetre PiP ouverte repond (doc-pip.js).
+  for (const t of tabs) {
+    chrome.tabs.sendMessage(t.id, { type: "doc-pip-pin" }).catch(() => {});
+  }
+}
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  chrome.tabs.get(tabId).then(
+    (tab) => {
+      tabWasX.set(tabId, isXUrl(tab.url));
+      if (isXUrl(tab.url)) pinDocPipOnX();
+    },
+    () => {},
+  );
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!changeInfo.url) return;
+  const isX = isXUrl(changeInfo.url);
+  const wasX = tabWasX.get(tabId) === true;
+  tabWasX.set(tabId, isX);
+  if (isX && !wasX && tab.active) pinDocPipOnX();
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => tabWasX.delete(tabId));
+
 function isTabMuted(tab) {
   return !!(tab.mutedInfo && tab.mutedInfo.muted);
 }
