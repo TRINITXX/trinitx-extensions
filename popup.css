@@ -141,6 +141,56 @@ main {
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
+/* Places de la fenetre PiP par site */
+.pip-sites-label,
+.pip-sites-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+#pip-site-save {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pip-sites-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-basis: 100%;
+}
+.pip-sites-list:empty {
+  display: none;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  background: #11141a;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 3px 2px 9px;
+}
+.chip.current {
+  border-color: var(--accent);
+}
+.chip-x {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 5px;
+  cursor: pointer;
+}
+.chip-x:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
 .fix-result {
   flex-basis: 100%;
   margin: 0;

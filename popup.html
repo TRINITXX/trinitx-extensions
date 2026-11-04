@@ -64,8 +64,9 @@
             <h2>PiP hotkey + mute</h2>
             <p>
               Picture-in-Picture + son du dernier onglet Twitch au clavier,
-              depuis n'importe quel onglet, dans une fenêtre PiP avec chat,
-              volume et qualité max. Jamais un autre site.
+              depuis n'importe quel onglet, dans une fenêtre PiP avec chat
+              (direct et rediffusion), volume et qualité max. Jamais un autre
+              site.
             </p>
           </div>
           <label class="switch">
@@ -79,6 +80,14 @@
           <a href="#" class="action" data-action="shortcuts"
             >Configurer les raccourcis →</a
           >
+        </div>
+        <div class="module-extra pip-sites">
+          <span class="pip-sites-label">Place de la fenêtre par site</span>
+          <button type="button" id="pip-site-save" class="btn" disabled>
+            📍 Retenir pour ce site
+          </button>
+          <p class="pip-sites-hint" id="pip-sites-hint" hidden></p>
+          <div class="pip-sites-list" id="pip-sites-list"></div>
         </div>
       </section>
 

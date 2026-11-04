@@ -36,7 +36,8 @@
   // Place de la fenetre d'Alexis le 31/10/2026 au soir (ecran 4K a 300 %), en
   // unites de chrome.windows : son rectangle Windows (2385, 321, 1458 x 1731
   // px) moins le decalage du cadre (24 px en haut). Valable tant qu'il n'en a
-  // pas retenu une autre (clic droit sur le bouton).
+  // pas retenu une autre (clic droit sur le bouton). LAYOUT_KEY, DEFAULT_LAYOUT
+  // et validLayout ont une copie dans background.js (x.com reprend cette place).
   const DEFAULT_LAYOUT = { left: 795, top: 99, width: 486, height: 577 };
   const CHAT_SHARE = 0.35; // part de la hauteur de la fenetre prise par le chat
   // Taille maximale d'une fenetre PiP : 80 % de l'ecran en largeur et en
@@ -104,11 +105,19 @@
     .line { padding: 1px 0; }
     .line b { font-weight: 700; }
     .line.sys { color: #adadb8; font-style: italic; }
-    .line .reply { display: flex; align-items: center; gap: 4px; min-width: 0;
+    /* Message d'origine d'une reponse : en entier, sur plusieurs lignes (Alexis, 04/11/2026). */
+    .line .reply { display: flex; align-items: flex-start; gap: 4px; min-width: 0;
       font-size: 11.5px; color: #adadb8; text-shadow: none; }
-    .line .reply span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .line .reply svg { flex: none; width: 13px; height: 13px; fill: none; stroke: currentColor;
+    .line .reply span { min-width: 0; }
+    .line .reply svg { flex: none; width: 13px; height: 13px; margin-top: 2px; fill: none; stroke: currentColor;
       stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .line .reply .emote { height: 1.6em; margin: -0.3em 0; }
+    .mention { font-weight: 700; }
+    /* Pseudo surligne dans 7TV : son rendu (fond teinte, barres de cote, couleur et
+       opacite de ses reglages, posees par twitch-chat.js). */
+    .line.hl { margin: 1px -10px; padding: 3px 7px; border: solid var(--hl); border-width: 0 3px;
+      background: var(--hl-dim); }
+    .line.hl-flat { border-color: transparent; }
     .badge { width: 18px; height: 18px; vertical-align: middle; margin: -3px 3px 0 0; }
     .emote { height: 1.9em; vertical-align: middle; margin: -0.35em 0; }
   `;
@@ -157,16 +166,29 @@
     return b;
   }
 
-  // Ce que joue la page : une chaine en direct, une rediffusion, ou autre
-  // chose (repertoire : le mini-lecteur garde la chaine precedente).
-  function readPage() {
-    if (!/^(www\.|m\.)?twitch\.tv$/.test(location.hostname)) return { channel: null, vod: false };
+  // Ce que joue la page : une chaine en direct, une rediffusion (id de la
+  // video), ou autre chose (repertoire : le mini-lecteur garde la precedente).
+  // subPage : /foo/videos, /foo/about... comptent pour la chaine foo (a
+  // l'ouverture seulement, faute de mieux).
+  function readPage(subPage = false) {
+    const none = { channel: null, vod: null };
+    if (!/^(www\.|m\.)?twitch\.tv$/.test(location.hostname)) return none;
     const parts = location.pathname.split("/").filter(Boolean);
     let name = (parts[0] || "").toLowerCase();
-    if (name === "videos") return { channel: null, vod: true };
+    if (name === "videos") return /^\d+$/.test(parts[1] || "") ? { channel: null, vod: parts[1] } : none;
     if ((name === "popout" || name === "moderator") && parts[1]) name = parts[1].toLowerCase();
-    if (NOT_CHANNEL.has(name) || !/^[a-z0-9_]{2,25}$/.test(name)) return { channel: null, vod: false };
-    return { channel: name, vod: false };
+    // /foo/videos, /foo/about... en cours de route : le mini-lecteur joue
+    // encore la video d'avant (une rediffusion, ou le direct d'une autre
+    // chaine), pas foo. Le chat ne change pas.
+    else if (parts.length > 1 && !subPage) return none;
+    if (NOT_CHANNEL.has(name) || !/^[a-z0-9_]{2,25}$/.test(name)) return none;
+    return { channel: name, vod: null };
+  }
+
+  // Source du chat : "live:<chaine>", "vod:<id>", ou null (pas de chat).
+  function chatSource(page) {
+    if (page.vod) return "vod:" + page.vod;
+    return page.channel ? "live:" + page.channel : null;
   }
 
   function pickVideo() {
@@ -200,7 +222,8 @@
   function startChat(s) {
     if (s.chat) s.chat.stop(); // raid : sinon l'ancien chat tourne encore
     s.list.textContent = "";
-    s.chat = window.__trinitxTwitchChat.create(s.list, s.channel);
+    const api = window.__trinitxTwitchChat;
+    s.chat = s.page.vod ? api.createVod(s.list, s.page.vod, s.video) : api.create(s.list, s.page.channel);
   }
 
   function stopChat(s, message) {
@@ -222,7 +245,7 @@
     if (!s || on === s.chatOn) return;
     s.chatOn = on;
     s.chatBtn.classList.toggle("on", on);
-    if (on && !s.chat && s.channel) startChat(s);
+    if (on && !s.chat && s.source) startChat(s);
     showChatIfRoom(s);
   }
 
@@ -334,17 +357,27 @@
       .catch(() => {});
   }
 
-  // Place retenue : clic = la fenetre y retourne (position et taille), clic
-  // droit = retenir la place actuelle. Grandir reste plafonne par Chrome a
-  // 25 % de la surface de l'ecran ; la place par defaut est en dessous.
-  // La fenetre va a la place retenue (epingle, arrivee sur un onglet x.com).
+  const validLayout = (b) =>
+    !!b && ["left", "top", "width", "height"].every((k) => Number.isFinite(b[k])) && b.width >= 100 && b.height >= 100;
+
+  // Position et taille (unites de chrome.windows), par le programme Windows :
+  // une place plus grande que la fenetre depasse le plafond de Chrome.
+  function placeAt(s, b) {
+    setBounds(s.win, { left: b.left, top: b.top, width: b.width, height: b.height }, true);
+  }
+
+  function currentLayout(win) {
+    return { left: win.screenX, top: win.screenY, width: win.outerWidth, height: win.outerHeight };
+  }
+
+  // Place de l'epingle : clic = la fenetre y retourne (position et taille),
+  // clic droit = retenir la place actuelle. Grandir reste plafonne par Chrome
+  // a 25 % de la surface de l'ecran ; la place par defaut est en dessous.
+  // Places par site (arrivee sur un site) : background.js, message doc-pip-place.
   async function goToSavedPlace(s) {
-    const valid = (b) =>
-      b && ["left", "top", "width", "height"].every((k) => Number.isFinite(b[k])) && b.width >= 100 && b.height >= 100;
     const { [LAYOUT_KEY]: saved } = await chrome.storage.local.get(LAYOUT_KEY);
     if (state !== s) return;
-    const b = valid(saved) ? saved : DEFAULT_LAYOUT;
-    setBounds(s.win, { left: b.left, top: b.top, width: b.width, height: b.height }, true);
+    placeAt(s, validLayout(saved) ? saved : DEFAULT_LAYOUT);
   }
 
   function enableLayout(s, pinBtn) {
@@ -354,27 +387,23 @@
     });
     pinBtn.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      const b = { left: win.screenX, top: win.screenY, width: win.outerWidth, height: win.outerHeight };
-      chrome.storage.local.set({ [LAYOUT_KEY]: b });
+      chrome.storage.local.set({ [LAYOUT_KEY]: currentLayout(win) });
       pinBtn.classList.add("saved");
       win.setTimeout(() => pinBtn.classList.remove("saved"), 700);
     });
   }
 
-  // Chaine changee sous la fenetre (raid, navigation) : le chat suit.
+  // Chaine ou rediffusion changee sous la fenetre (raid, navigation) : le
+  // chat suit. Page sans chat (repertoire) : le mini-lecteur garde la video
+  // precedente, et le chat avec.
   function followChannel() {
     const s = state;
     if (!s) return;
     const page = readPage();
-    if (page.vod) {
-      if (s.channel) {
-        s.channel = null;
-        stopChat(s, "Rediffusion : pas de chat en direct.");
-      }
-      return;
-    }
-    if (!page.channel || page.channel === s.channel) return;
-    s.channel = page.channel;
+    const source = chatSource(page);
+    if (!source || source === s.source) return;
+    s.source = source;
+    s.page = page;
     s.chatBtn.hidden = false;
     if (s.chatOn) startChat(s);
     else stopChat(s);
@@ -404,7 +433,7 @@
     const pinBtn = button(doc, "pin", "pin");
     pinBtn.title = "Remettre la fenêtre à sa place (clic droit : retenir la place actuelle)";
     const chatBtn = button(doc, "chat", "chat", "Chat");
-    chatBtn.hidden = !page.channel; // rediffusion, page sans chaine : pas de chat
+    chatBtn.hidden = !chatSource(page); // page sans chaine ni rediffusion : pas de chat
     bar.append(playBtn, muteBtn, volume, spacer, pinBtn, chatBtn);
     const band = doc.createElement("div");
     band.className = "band";
@@ -419,7 +448,7 @@
     const events = new AbortController();
     const s = {
       win, video, home, events, stage, band, list, chatBtn,
-      channel: page.channel, chat: null, chatOn: false, muted: false, showMuted: null,
+      page, source: chatSource(page), chat: null, chatOn: false, muted: false, showMuted: null,
       poll: 0,
     };
     state = s;
@@ -499,9 +528,9 @@
     if (!video) return { status: "no-video" };
     opening = true;
     try {
-      const page = readPage();
+      const page = readPage(true);
       const stored = await chrome.storage.local.get(CHAT_KEY);
-      const chatOn = !!stored[CHAT_KEY] && !!page.channel;
+      const chatOn = !!stored[CHAT_KEY] && !!chatSource(page);
       // PiP natif encore ouvert (bouton de la page) : requestWindow ne repond
       // jamais tant qu'il est la (mesure), on le ferme d'abord.
       if (document.pictureInPictureElement) await document.exitPictureInPicture().catch(() => {});
@@ -518,14 +547,16 @@
     }
   }
 
-  // Son de l'onglet coupe ou remis ailleurs (raccourci, audio solo) : l'icone suit.
-  // Arrivee sur un onglet x.com (background.js) : la fenetre va a la place retenue.
-  chrome.runtime.onMessage.addListener((msg) => {
+  // Messages de background.js :
+  // - son de l'onglet coupe ou remis ailleurs (raccourci, audio solo) : l'icone suit ;
+  // - arrivee sur un site qui a sa place : la fenetre y va ;
+  // - popup qui retient la place pour un site : la place actuelle.
+  // Sans fenetre ouverte, rien ne repond.
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || !state) return;
     if (msg.type === "doc-pip-muted" && state.showMuted) state.showMuted(!!msg.muted);
-    if (msg.type === "doc-pip-pin") {
-      goToSavedPlace(state).catch((e) => console.warn("[DocPiP] place retenue introuvable:", e.message));
-    }
+    if (msg.type === "doc-pip-place" && validLayout(msg.bounds)) placeAt(state, msg.bounds);
+    if (msg.type === "doc-pip-get-bounds") sendResponse(currentLayout(state.win));
   });
 
   const isAlive = () => {

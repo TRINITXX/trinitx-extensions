@@ -1169,59 +1169,174 @@ function isTwitchUrl(url) {
 }
 
 // ===========================================================================
-// MODULE PiP — arrivee sur un onglet x.com : la fenetre PiP va a sa place
+// MODULE PiP — place de la fenetre PiP par site
 // ===========================================================================
-// Meme effet que le bouton epingle (Alexis, 01/11/2026). Seulement quand on
-// ARRIVE sur x.com : changement d'onglet, ou onglet actif qui passe d'un autre
-// site a x.com. Jamais au retour du focus ni a une navigation dans x.com : un
+// Depuis le popup, Alexis retient la place (position et taille) de la fenetre
+// PiP pour le site de l'onglet actif ; en arrivant sur ce site, la fenetre y
+// va (x.com seul le 01/11/2026, tous les sites le 04/11). Seulement a
+// l'ARRIVEE : changement d'onglet, ou onglet actif qui passe d'un autre site
+// a celui-ci. Jamais au retour du focus ni a une navigation dans le site : un
 // clic dans la fenetre PiP rend le focus a l'onglet, et une fenetre deplacee
-// a la main sur X ne doit pas sauter a chaque page.
-function isXUrl(url) {
+// a la main ne doit pas sauter a chaque page. Site sans place : rien ne bouge.
+const PIP_SITES_KEY = "pipSiteLayouts"; // { "facebook.com": { left, top, width, height } }
+// Place de l'epingle : copies de LAYOUT_KEY et DEFAULT_LAYOUT (doc-pip.js),
+// comme validPipLayout de validLayout. x.com la reprend a la creation de la
+// liste : c'etait sa place avant les sites.
+const PIP_PIN_KEY = "pipLayout2";
+const PIP_PIN_DEFAULT = { left: 795, top: 99, width: 486, height: 577 };
+
+// Site d'une URL : son domaine sans sous-domaine (www.facebook.com et
+// m.facebook.com -> facebook.com), trois etiquettes pour co.uk, gouv.fr...
+// null pour une page qui n'est pas un site web (chrome://, fichier).
+// Approche sans liste des suffixes publics : tous les *.github.io comptent
+// pour un seul site, x.ne.jp donne ne.jp. Suffisant pour l'usage d'Alexis.
+function siteOf(url) {
+  let host;
   try {
-    return /(^|\.)(x|twitter)\.com$/i.test(new URL(url).hostname);
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    host = u.hostname.toLowerCase();
   } catch {
-    return false;
+    return null;
+  }
+  if (!host || /^[\d.]+$/.test(host) || host.startsWith("[")) return host || null; // adresse IP
+  const labels = host.split(".");
+  const n = labels.length;
+  const sld = n >= 3 && labels[n - 1].length === 2 && /^(co|com|net|org|gov|gouv|edu|ac)$/.test(labels[n - 2]);
+  return labels.slice(sld ? -3 : -2).join(".");
+}
+
+function validPipLayout(b) {
+  return !!b && ["left", "top", "width", "height"].every((k) => Number.isFinite(b[k])) && b.width >= 100 && b.height >= 100;
+}
+
+async function getPipSiteLayouts() {
+  const got = await chrome.storage.local.get([PIP_SITES_KEY, PIP_PIN_KEY]);
+  const layouts = got[PIP_SITES_KEY];
+  if (layouts && typeof layouts === "object") return layouts;
+  const seeded = { "x.com": validPipLayout(got[PIP_PIN_KEY]) ? got[PIP_PIN_KEY] : PIP_PIN_DEFAULT };
+  await chrome.storage.local.set({ [PIP_SITES_KEY]: seeded });
+  return seeded;
+}
+
+async function pipModuleOn() {
+  const mods = await getModules();
+  return !!mods.pip && (await isMasterEnabled());
+}
+
+async function twitchTabs() {
+  try {
+    return await chrome.tabs.query({ url: PIP_TWITCH_MATCH });
+  } catch {
+    return [];
   }
 }
 
-// Dernier site vu par onglet, pour reconnaitre l'arrivee sur x.com.
-// Perdu quand le service worker s'endort : au pire, une mise en place de trop.
-const tabWasX = new Map();
+// Place actuelle de la fenetre PiP, demandee a l'onglet Twitch qui l'a
+// ouverte (seul doc-pip.js de cet onglet repond). null : pas de fenetre.
+async function getDocPipLayout() {
+  // Delai : une reponse jamais rendue bloquerait la file (queued) et donc
+  // toute arrivee sur un site.
+  const ask = (t) =>
+    Promise.race([
+      chrome.tabs.sendMessage(t.id, { type: "doc-pip-get-bounds" }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("pas de reponse")), 2000)),
+    ]);
+  const answers = await Promise.allSettled((await twitchTabs()).map(ask));
+  const hit = answers.find((a) => a.status === "fulfilled" && validPipLayout(a.value));
+  if (!hit) return null;
+  const b = hit.value;
+  return { left: Math.round(b.left), top: Math.round(b.top), width: Math.round(b.width), height: Math.round(b.height) };
+}
 
-async function pinDocPipOnX() {
-  const mods = await getModules();
-  if (!mods.pip || !(await isMasterEnabled())) return;
-  let tabs = [];
-  try {
-    tabs = await chrome.tabs.query({ url: PIP_TWITCH_MATCH });
-  } catch {
-    return;
+async function placeDocPipForSite(site) {
+  if (!site || !(await pipModuleOn())) return;
+  const layout = (await getPipSiteLayouts())[site];
+  if (!validPipLayout(layout)) return;
+  for (const t of await twitchTabs()) {
+    chrome.tabs.sendMessage(t.id, { type: "doc-pip-place", bounds: layout }).catch(() => {});
   }
-  // Seul l'onglet qui a la fenetre PiP ouverte repond (doc-pip.js).
-  for (const t of tabs) {
-    chrome.tabs.sendMessage(t.id, { type: "doc-pip-pin" }).catch(() => {});
-  }
+}
+
+// Lectures-ecritures en file : deux evenements (ou deux clics du popup)
+// rapproches liraient le meme etat, et le second effacerait le premier.
+function queued(fn) {
+  const run = queued.tail.then(fn, fn);
+  queued.tail = run.catch(() => {});
+  return run;
+}
+queued.tail = Promise.resolve();
+
+// Dernier site vu par onglet, pour reconnaitre une arrivee. En
+// chrome.storage.session, pas en memoire : le service worker s'endort apres
+// ~30 s sans evenement, et une navigation dans le site a son reveil passait
+// pour une arrivee (la fenetre sautait, relu le 04/11/2026).
+const PIP_TAB_SITES_KEY = "pipTabSites"; // { [tabId]: site | null }
+
+// Retient le site de l'onglet et renvoie le precedent (undefined : jamais vu).
+function swapTabSite(tabId, site) {
+  return queued(async () => {
+    const map = (await chrome.storage.session.get(PIP_TAB_SITES_KEY))[PIP_TAB_SITES_KEY] || {};
+    const before = map[tabId];
+    if (site === undefined) delete map[tabId];
+    else map[tabId] = site;
+    await chrome.storage.session.set({ [PIP_TAB_SITES_KEY]: map });
+    return before;
+  });
 }
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   chrome.tabs.get(tabId).then(
-    (tab) => {
-      tabWasX.set(tabId, isXUrl(tab.url));
-      if (isXUrl(tab.url)) pinDocPipOnX();
+    async (tab) => {
+      const site = siteOf(tab.url);
+      await swapTabSite(tabId, site);
+      placeDocPipForSite(site);
     },
     () => {},
   );
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!changeInfo.url) return;
-  const isX = isXUrl(changeInfo.url);
-  const wasX = tabWasX.get(tabId) === true;
-  tabWasX.set(tabId, isX);
-  if (isX && !wasX && tab.active) pinDocPipOnX();
+  const site = siteOf(changeInfo.url);
+  const before = await swapTabSite(tabId, site);
+  if (site !== before && tab.active) placeDocPipForSite(site);
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => tabWasX.delete(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  swapTabSite(tabId, undefined).catch(() => {});
+});
+
+// Popup (pas d'onglet emetteur) : lire, retenir ou oublier la place d'un site.
+// Le site vient de l'URL de l'onglet actif, envoyee par le popup.
+async function handlePipSitesMessage(msg) {
+  if (msg.type === "pip-sites-forget") {
+    const layouts = { ...(await getPipSiteLayouts()) };
+    delete layouts[String(msg.site)];
+    await chrome.storage.local.set({ [PIP_SITES_KEY]: layouts });
+    return { ok: true, layouts };
+  }
+  const site = siteOf(msg.url);
+  if (msg.type === "pip-sites-save") {
+    if (!site) return { ok: false, reason: "no-site" };
+    const layout = await getDocPipLayout();
+    if (!layout) return { ok: false, reason: "no-pip" };
+    const layouts = { ...(await getPipSiteLayouts()), [site]: layout };
+    await chrome.storage.local.set({ [PIP_SITES_KEY]: layouts });
+    return { ok: true, site, layouts, pipOpen: true };
+  }
+  // pip-sites-get
+  const [layouts, layout] = await Promise.all([getPipSiteLayouts(), getDocPipLayout()]);
+  return { ok: true, site, layouts, pipOpen: !!layout };
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || !/^pip-sites-(get|save|forget)$/.test(msg.type) || sender.tab) return;
+  queued(() => handlePipSitesMessage(msg))
+    .then(sendResponse)
+    .catch((e) => sendResponse({ ok: false, reason: e.message }));
+  return true; // reponse asynchrone
+});
 
 function isTabMuted(tab) {
   return !!(tab.mutedInfo && tab.mutedInfo.muted);

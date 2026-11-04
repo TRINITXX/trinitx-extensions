@@ -189,6 +189,71 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // --- PiP : place de la fenetre par site ---------------------------------------
+  // background.js tient la liste (pipSiteLayouts) et lit la place actuelle de
+  // la fenetre PiP ; le popup lui envoie l'URL de l'onglet actif. En arrivant
+  // sur un site de la liste, la fenetre PiP y va.
+  const pipSaveBtn = document.getElementById("pip-site-save");
+  const pipHint = document.getElementById("pip-sites-hint");
+  const pipList = document.getElementById("pip-sites-list");
+  const pipNow = { url: "", site: null, pipOpen: false };
+
+  function pipRender(layouts) {
+    pipSaveBtn.textContent = `📍 Retenir pour ${pipNow.site || "ce site"}`;
+    pipSaveBtn.disabled = !pipNow.site || !pipNow.pipOpen;
+    pipHint.hidden = !pipSaveBtn.disabled;
+    pipHint.textContent = pipNow.site
+      ? "Ouvre d'abord la fenêtre PiP."
+      : "Page non prise en charge.";
+    pipList.textContent = "";
+    for (const site of Object.keys(layouts || {}).sort()) {
+      const chip = document.createElement("span");
+      chip.className = site === pipNow.site ? "chip current" : "chip";
+      chip.append(site);
+      const forget = document.createElement("button");
+      forget.type = "button";
+      forget.className = "chip-x";
+      forget.textContent = "✕";
+      forget.title = `Oublier la place de ${site}`;
+      forget.addEventListener("click", async () => {
+        const r = await chrome.runtime
+          .sendMessage({ type: "pip-sites-forget", site })
+          .catch(() => null);
+        if (r && r.ok) pipRender(r.layouts);
+        else showStatus("Erreur");
+      });
+      chip.append(forget);
+      pipList.append(chip);
+    }
+  }
+
+  async function pipLoad() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    pipNow.url = (tab && tab.url) || "";
+    const r = await chrome.runtime
+      .sendMessage({ type: "pip-sites-get", url: pipNow.url })
+      .catch(() => null);
+    if (!r || !r.ok) return;
+    pipNow.site = r.site || null;
+    pipNow.pipOpen = !!r.pipOpen;
+    pipRender(r.layouts);
+  }
+
+  pipSaveBtn.addEventListener("click", async () => {
+    pipSaveBtn.disabled = true;
+    const r = await chrome.runtime
+      .sendMessage({ type: "pip-sites-save", url: pipNow.url })
+      .catch(() => null);
+    if (r && r.ok) {
+      pipRender(r.layouts);
+      showStatus(`Place retenue pour ${r.site}`);
+      return;
+    }
+    showStatus(r && r.reason === "no-pip" ? "Fenêtre PiP fermée" : "Erreur");
+    pipLoad().catch(() => {});
+  });
+  pipLoad().catch(() => {});
+
   // --- X — Masquer par pays (liste de pays a masquer) ------------------------
   // La blacklist vit dans chrome.storage.local (cle hiddenCountries). Le content
   // script la lit via storage.onChanged et re-evalue le fil en direct. Tant que
