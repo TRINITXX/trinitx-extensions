@@ -23,6 +23,8 @@
 //   que jusqu'a 25 % de la surface de l'ecran (au-dela, Chrome la reduit) :
 //   l'epingle ne ramene une place plus grande que depuis une fenetre plus
 //   grande. Aucun recalage automatique : la taille est celle qu'Alexis donne.
+// Double-clic sur la video : la fenetre passe a ce plafond de 80 %, centree
+// sur l'ecran ; double-clic encore : retour a la place d'avant (Alexis, 05/11/2026).
 (() => {
   // Extension rechargee : l'ancien script reste dans la page, sans acces a
   // chrome.* ; le nouveau prend sa place au lieu de s'effacer devant lui.
@@ -48,6 +50,7 @@
   const OPEN_W = 480; // largeur a l'ouverture (px)
   const RATIO = 16 / 9;
   const DRAG_THRESHOLD = 4; // px avant qu'un appui sur la video devienne un deplacement
+  const DOUBLE_CLICK_MS = 500; // delai de double-clic par defaut de Windows
   const POLL_MS = 5000; // suivi de la chaine (raid, navigation)
   const OPEN_ATTR = "data-trinitx-doc-pip"; // sur <html> : lu par player.js (monde MAIN)
   const NATIVE_ATTR = "data-trinitx-native-pip"; // sur <html> : repli natif voulu par background.js
@@ -291,6 +294,10 @@
       drag = null;
       stage.classList.remove("dragging");
     };
+    const up = (e) => {
+      if (drag && !drag.moved) onVideoClick(s, e);
+      end();
+    };
     const opts = { signal: s.events.signal };
     stage.addEventListener("pointerdown", (e) => {
       if (e.button !== 0 || e.target.closest(".bar")) return;
@@ -307,7 +314,7 @@
       drag.next = { left: Math.round(drag.left + dx), top: Math.round(drag.top + dy) };
       if (!drag.raf) drag.raf = win.requestAnimationFrame(send);
     }, opts);
-    stage.addEventListener("pointerup", end, opts);
+    stage.addEventListener("pointerup", up, opts);
     stage.addEventListener("pointercancel", end, opts);
     stage.addEventListener("lostpointercapture", end, opts);
   }
@@ -377,7 +384,49 @@
   async function goToSavedPlace(s) {
     const { [LAYOUT_KEY]: saved } = await chrome.storage.local.get(LAYOUT_KEY);
     if (state !== s) return;
+    s.beforeMax = null;
     placeAt(s, validLayout(saved) ? saved : DEFAULT_LAYOUT);
+  }
+
+  // Plus grande fenetre que Chrome permet (80 % de l'ecran entier, en
+  // largeur et en hauteur, arrondi comme lui), centree sur l'ecran hors barre
+  // des taches. Le chat s'y cache : il prendrait de la hauteur a la video.
+  function maxLayout(win) {
+    const sc = win.screen;
+    const width = Math.round(sc.width * MAX_WINDOW_RATIO);
+    const height = Math.round(sc.height * MAX_WINDOW_RATIO);
+    const left = (sc.availLeft || 0) + Math.round((sc.availWidth - width) / 2);
+    const top = (sc.availTop || 0) + Math.round((sc.availHeight - height) / 2);
+    return { left, top, width, height };
+  }
+
+  function isMaximized(win) {
+    const max = maxLayout(win);
+    return win.outerWidth >= max.width - MAX_TOLERANCE && win.outerHeight >= max.height - MAX_TOLERANCE;
+  }
+
+  // Double-clic sur la video : agrandir au maximum, ou revenir a la place
+  // d'avant. Compte a la main sur pointerup (pas l'evenement dblclick) :
+  // chaque clic rend le clavier a la fenetre du dessous entre les deux.
+  // Le sens se lit sur la taille reelle : une fenetre agrandie puis
+  // retrecie a la main s'agrandit de nouveau. Au maximum sans place d'avant
+  // (agrandie a la main, ou apres l'epingle ou l'arrivee sur un site, qui
+  // l'oublient) : retour a la place de l'epingle.
+  function onVideoClick(s, e) {
+    const last = s.lastClick;
+    s.lastClick = { t: e.timeStamp, x: e.screenX, y: e.screenY };
+    if (!last || e.timeStamp - last.t > DOUBLE_CLICK_MS) return;
+    if (Math.hypot(e.screenX - last.x, e.screenY - last.y) > DRAG_THRESHOLD) return;
+    s.lastClick = null; // un troisieme clic ne rebascule pas
+    if (isMaximized(s.win)) {
+      const back = s.beforeMax;
+      s.beforeMax = null;
+      if (back) placeAt(s, back);
+      else goToSavedPlace(s).catch((err) => console.warn("[DocPiP] place retenue introuvable:", err.message));
+    } else {
+      s.beforeMax = currentLayout(s.win);
+      placeAt(s, maxLayout(s.win));
+    }
   }
 
   function enableLayout(s, pinBtn) {
@@ -449,7 +498,7 @@
     const s = {
       win, video, home, events, stage, band, list, chatBtn,
       page, source: chatSource(page), chat: null, chatOn: false, muted: false, showMuted: null,
-      poll: 0,
+      poll: 0, lastClick: null, beforeMax: null,
     };
     state = s;
     win.addEventListener("pagehide", unmount, { once: true });
@@ -555,7 +604,10 @@
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || !state) return;
     if (msg.type === "doc-pip-muted" && state.showMuted) state.showMuted(!!msg.muted);
-    if (msg.type === "doc-pip-place" && validLayout(msg.bounds)) placeAt(state, msg.bounds);
+    if (msg.type === "doc-pip-place" && validLayout(msg.bounds)) {
+      state.beforeMax = null;
+      placeAt(state, msg.bounds);
+    }
     if (msg.type === "doc-pip-get-bounds") sendResponse(currentLayout(state.win));
   });
 
