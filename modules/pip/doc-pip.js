@@ -598,8 +598,11 @@
 
   // Messages de background.js :
   // - son de l'onglet coupe ou remis ailleurs (raccourci, audio solo) : l'icone suit ;
-  // - arrivee sur un site qui a sa place : la fenetre y va ;
-  // - popup qui retient la place pour un site : la place actuelle.
+  // - arrivee sur un site qui a sa place : la fenetre y va, et le chat
+  //   reprend l'etat retenu avec elle (comme un clic sur le bouton Chat) ;
+  // - popup qui retient la place pour un site : la place actuelle et le chat.
+  // Video sans chaine ni rediffusion (bouton Chat cache) : le chat n'existe
+  // pas, il n'est ni change ni retenu.
   // Sans fenetre ouverte, rien ne repond.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || !state) return;
@@ -607,8 +610,15 @@
     if (msg.type === "doc-pip-place" && validLayout(msg.bounds)) {
       state.beforeMax = null;
       placeAt(state, msg.bounds);
+      if (typeof msg.chat === "boolean" && state.source && msg.chat !== state.chatOn) {
+        setChat(msg.chat);
+        chrome.storage.local.set({ [CHAT_KEY]: msg.chat });
+      }
     }
-    if (msg.type === "doc-pip-get-bounds") sendResponse(currentLayout(state.win));
+    if (msg.type === "doc-pip-get-bounds") {
+      const layout = currentLayout(state.win);
+      sendResponse(state.source ? { ...layout, chat: state.chatOn } : layout);
+    }
   });
 
   const isAlive = () => {

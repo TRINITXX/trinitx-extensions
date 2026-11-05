@@ -1178,7 +1178,10 @@ function isTwitchUrl(url) {
 // a celui-ci. Jamais au retour du focus ni a une navigation dans le site : un
 // clic dans la fenetre PiP rend le focus a l'onglet, et une fenetre deplacee
 // a la main ne doit pas sauter a chaque page. Site sans place : rien ne bouge.
-const PIP_SITES_KEY = "pipSiteLayouts"; // { "facebook.com": { left, top, width, height } }
+// { "facebook.com": { left, top, width, height, chat } } ; chat : bouton Chat
+// actif quand la place a ete retenue (Alexis, 05/11/2026). Absent (place
+// retenue avant, x.com cree depuis l'epingle) : le chat reste comme il est.
+const PIP_SITES_KEY = "pipSiteLayouts";
 // Place de l'epingle : copies de LAYOUT_KEY et DEFAULT_LAYOUT (doc-pip.js),
 // comme validPipLayout de validLayout. x.com la reprend a la creation de la
 // liste : c'etait sa place avant les sites.
@@ -1232,8 +1235,9 @@ async function twitchTabs() {
   }
 }
 
-// Place actuelle de la fenetre PiP, demandee a l'onglet Twitch qui l'a
-// ouverte (seul doc-pip.js de cet onglet repond). null : pas de fenetre.
+// Place actuelle de la fenetre PiP et etat du bouton Chat, demandes a
+// l'onglet Twitch qui l'a ouverte (seul doc-pip.js de cet onglet repond).
+// null : pas de fenetre.
 async function getDocPipLayout() {
   // Delai : une reponse jamais rendue bloquerait la file (queued) et donc
   // toute arrivee sur un site.
@@ -1246,15 +1250,19 @@ async function getDocPipLayout() {
   const hit = answers.find((a) => a.status === "fulfilled" && validPipLayout(a.value));
   if (!hit) return null;
   const b = hit.value;
-  return { left: Math.round(b.left), top: Math.round(b.top), width: Math.round(b.width), height: Math.round(b.height) };
+  const layout = { left: Math.round(b.left), top: Math.round(b.top), width: Math.round(b.width), height: Math.round(b.height) };
+  if (typeof b.chat === "boolean") layout.chat = b.chat;
+  return layout;
 }
 
 async function placeDocPipForSite(site) {
   if (!site || !(await pipModuleOn())) return;
   const layout = (await getPipSiteLayouts())[site];
   if (!validPipLayout(layout)) return;
+  const msg = { type: "doc-pip-place", bounds: layout };
+  if (typeof layout.chat === "boolean") msg.chat = layout.chat;
   for (const t of await twitchTabs()) {
-    chrome.tabs.sendMessage(t.id, { type: "doc-pip-place", bounds: layout }).catch(() => {});
+    chrome.tabs.sendMessage(t.id, msg).catch(() => {});
   }
 }
 
