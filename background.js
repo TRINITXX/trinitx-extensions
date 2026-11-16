@@ -17,6 +17,8 @@ const DEFAULT_MODULES = {
   xFocusTimeline: true,
   // Repare la mise en page figee de X (onglet charge en arriere-plan).
   xLayoutRefresh: true,
+  // Zoom de x.com bloque a 110 % : ON par defaut.
+  xLockZoom: true,
   twitchNoSub: true,
   // Anti-pub Twitch (vaft) : ON par defaut.
   twitchAdsVaft: true,
@@ -182,6 +184,15 @@ const CONTENT_MODULES = {
     matches: ["*://x.com/*", "*://twitter.com/*"],
     world: "ISOLATED",
     runAt: "document_idle",
+  },
+  // Zoom bloque a 110 % : la page annule Ctrl + molette, le zoom lui-meme est
+  // pose et retabli plus bas (section "Zoom de x.com bloque").
+  xLockZoom: {
+    id: "x-lock-zoom",
+    js: ["modules/x-lock-zoom/content.js"],
+    matches: ["*://x.com/*", "*://twitter.com/*"],
+    world: "ISOLATED",
+    runAt: "document_start",
   },
   // Vitesse de lecture personnalisee. Monde MAIN : YouTube a decouple
   // l'element <video> de la lecture reelle, seul #movie_player.setPlaybackRate()
@@ -1755,6 +1766,76 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => xTabsHandled.delete(tabId));
 
+// --- Zoom de x.com bloque a 110 % (module xLockZoom) ----------------------
+// Chrome retient le zoom par site (scope "per-origin") : le poser sur un onglet
+// x.com le pose sur tous, et il survit au redemarrage. Ctrl + molette est
+// annule dans la page (content script) ; tout autre changement (Ctrl +/-, menu
+// de Chrome, reglages) est defait ici des qu'il arrive.
+const X_LOCKED_ZOOM = 1.1;
+
+async function isXLockZoomEnabled() {
+  const mods = await getModules();
+  return (await isMasterEnabled()) && !!mods.xLockZoom;
+}
+
+// tab.url ne suffit pas : sur une page d'erreur de Chrome (hors ligne, DNS),
+// l'URL reste x.com mais Chrome range le zoom sous l'hote "chromewebdata",
+// commun a TOUTES les pages d'erreur. Y poser 110 % zoomerait les pages
+// d'erreur de tous les sites, durablement (trouve en review). executeScript
+// tourne dans le document reellement affiche et echoue sur une page d'erreur.
+async function showsXDocument(tabId) {
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => location.hostname,
+    });
+    return !!res && /^(x|twitter)\.com$/.test(res.result);
+  } catch {
+    return false;
+  }
+}
+
+async function lockXZoom(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || !isXUrl(tab.url || "")) return;
+  if (!(await isXLockZoomEnabled())) return;
+  if (!(await showsXDocument(tabId))) return;
+  try {
+    // Scope "per-tab" = aller-retour de xNudgeZoom en cours (reparation de la
+    // mise en page) : il rend lui-meme le zoom du site a la fin, ne pas s'y
+    // opposer, sinon le remesurage de X ne se declenche plus.
+    const settings = await chrome.tabs.getZoomSettings(tabId);
+    if (settings.scope === "per-tab") return;
+    const zoom = await chrome.tabs.getZoom(tabId);
+    if (Math.abs(zoom - X_LOCKED_ZOOM) < 0.001) return;
+    await chrome.tabs.setZoom(tabId, X_LOCKED_ZOOM);
+    console.log(TAG, `zoom X remis a 110 % (etait ${Math.round(zoom * 100)} %)`);
+  } catch (e) {
+    console.warn(TAG, "zoom X bloque, echec:", e.message);
+  }
+}
+
+async function lockOpenXTabs() {
+  if (!(await isXLockZoomEnabled())) return;
+  const tabs = await chrome.tabs
+    .query({ url: ["*://x.com/*", "*://twitter.com/*"] })
+    .catch(() => []);
+  for (const tab of tabs) await lockXZoom(tab.id);
+}
+
+chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor }) => {
+  if (Math.abs(newZoomFactor - X_LOCKED_ZOOM) < 0.001) return;
+  lockXZoom(tabId);
+});
+
+// Arrivee sur x.com : rattrape un zoom du site change pendant que le module
+// etait coupe (ou remis a zero dans les reglages de Chrome).
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "loading") return;
+  if (!isXUrl((tab && tab.url) || changeInfo.url || "")) return;
+  lockXZoom(tabId);
+});
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "reload-tabs") {
     reloadWindowTabs().then(sendResponse);
@@ -1780,6 +1861,9 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   // — on applique ou on rend le son selon l'etat effectif du module.
   if (await isTwitchSoloEnabled()) scheduleTwSolo(applyTwitchSolo);
   else scheduleTwSolo(restoreTwitchSolo);
+
+  // Zoom X bloque : remettre 110 % des que le module (re)passe ON.
+  lockOpenXTabs();
 
   // Plus rien a injecter si l'interrupteur maitre est OFF.
   if (!(await isMasterEnabled())) return;
@@ -1811,12 +1895,14 @@ chrome.runtime.onInstalled.addListener(async () => {
   await syncRegistrations();
   await syncContextMenus();
   if (await isTwitchSoloEnabled()) scheduleTwSolo(applyTwitchSolo);
+  lockOpenXTabs();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await syncRegistrations();
   await syncContextMenus();
   if (await isTwitchSoloEnabled()) scheduleTwSolo(applyTwitchSolo);
+  lockOpenXTabs();
 });
 
 console.log(TAG, "service worker demarre");

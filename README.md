@@ -15,6 +15,7 @@ extension, avec un popup pour activer/désactiver chacun.
 | **X — Thème Dim**                | x.com, twitter.com | Restaure le thème bleu « Dim » par-dessus le mode sombre actuel (fond, textes, bordures, scrollbar)                                          |
 | **X — Fil seul**                 | x.com, twitter.com | Masque la navigation de gauche et la colonne de droite (recherche, tendances, suggestions) sans déplacer le fil, et la bulle bleue « a posté » des nouveaux posts ; pastille discrète en haut à droite pour tout réafficher ; la cloche reste visible quand elle a des notifications non lues |
 | **X — Mise en page figée**       | x.com, twitter.com | Un onglet X ouvert en arrière-plan est rendu au zoom 100 % puis zoomé à l'affichage sans que X ne remesure (barre de gauche restée « en grand », défilement horizontal) : l'onglet est rechargé pendant qu'il est encore en arrière-plan, donc rien ne se voit (sauf `x.com/home`, jamais touché) ; bouton « Réparer maintenant » dans le popup |
+| **X — Zoom bloqué à 110 %**      | x.com, twitter.com | Garde x.com au zoom 110 % : Ctrl + molette ne zoome plus, tout autre changement de zoom (Ctrl + / −, menu de Chrome) est aussitôt annulé |
 | **Twitch — VOD sub-only**        | twitch.tv          | Débloque la lecture des VOD réservées aux abonnés (intègre [TwitchNoSub](https://github.com/besuper/TwitchNoSub))                            |
 | **Twitch — Anti-pub (vaft)**     | twitch.tv          | Bloque les pubs des lives (variante _vaft_ de [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions))                           |
 | **Twitch — Preview au survol**   | twitch.tv          | Preview vidéo en direct de la chaîne au survol d'un streamer dans les listes (sidebar, accueil, catégories, recherche) ; muette, flottante   |
@@ -73,6 +74,7 @@ trinitx-extensions/
     ├── x-dim-theme/content.js     # monde ISOLATED, restaure le thème Dim (CSS)
     ├── x-focus-timeline/content.js # monde ISOLATED, masque les bandes latérales (CSS, visibility)
     ├── x-layout-refresh/content.js # monde ISOLATED, force X à remesurer la fenêtre
+    ├── x-lock-zoom/content.js     # monde ISOLATED, bloque Ctrl + molette (zoom 110 % posé par background.js)
     ├── flag-emoji/                 # ISOLATED, tous les sites : drapeaux emoji
     │   ├── content.js              # detection canvas + FontFace + wrapping des drapeaux
     │   ├── TwemojiCountryFlags.woff2 # sous-ensemble Twemoji (drapeaux seuls, 78 Ko)

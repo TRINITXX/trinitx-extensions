@@ -4,7 +4,7 @@ Read by every review of this repo, on top of `AGENTS.md` and `CLAUDE.md`. A revi
 
 ## What counts as a bug here
 
-- **A module acting on the wrong site or tab.** The PiP and mute hotkeys only ever target twitch.tv tabs (most recently accessed first), never the active tab of another site (fix 977f33e). Mute targets the tab actually in picture-in-picture, native or Document PiP (fix d946a5c).
+- **A module acting on the wrong site or tab.** The PiP and mute hotkeys only ever target twitch.tv tabs (most recently accessed first), never the active tab of another site (fix 977f33e). Mute targets the tab actually in picture-in-picture, native or Document PiP (fix d946a5c). Zoom is stored per host: an x.com tab on an error page zooms `chromewebdata` (all error pages). Model: `showsXDocument`.
 - **Re-injection breaking a tab.** Every ISOLATED script keeps its IIFE + `window.__xxxLoaded` guard: a module can be injected again into an open tab (toggle, extension reload, on-demand injection like `area-screenshot` or `modules/pip/`).
 - **Work that silently stops in a hidden tab.** A hidden tab renders nothing (rAF and IntersectionObserver at 0, timers at 1/s). Anything that must keep going while the user is elsewhere relies on events (WebSocket, storage) or pauses and resumes on `visibilitychange`; it never reads a page DOM that only updates on render (memory `hidden-tab-rendering-freeze`).
 - **A page element moved or hidden and never put back.** The Document PiP moves Twitch's `<video>` into its window: closing it by any path (cross, hotkey, back-to-tab, tab navigation) must put the video back where it was and keep it playing. `pagehide` is registered before anything that can throw.

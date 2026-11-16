@@ -8,6 +8,7 @@ const DEFAULT_MODULES = {
   xDimTheme: true,
   xFocusTimeline: true,
   xLayoutRefresh: true,
+  xLockZoom: true,
   twitchNoSub: true,
   twitchAdsVaft: true,
   twitchPreview: true,
